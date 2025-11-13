@@ -19,7 +19,7 @@ uint8_t image_buf[352*288*2];
 
 int main() {
 	stdio_uart_init();
-	uart_set_baudrate(uart0, 1000000);
+	uart_set_baudrate(uart0, 460800);
 
 	printf("\n\nBooted!\n");
 
