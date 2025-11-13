@@ -218,7 +218,8 @@ static const uint8_t ov2640_vga[][2] = {
 	{0xe0, 0x00},
 	{0xFF, 0x00},
 	{0x05, 0x00},
-	{0xDA, 0x08},
+	//{0xDA, 0x08}, // Image mode (RGB565)
+	{0xDA, 0x00}, // Image mode (YUV422)
 	{0xda, 0x09},
 	{0x98, 0x00},
 	{0x99, 0x00},
@@ -245,16 +246,23 @@ static const uint8_t ov2640_vga[][2] = {
 static const uint8_t ov2640_uxga_cif[][2] = {   
 	{0xff, 0x00},   
 	{0xe0, 0x04},   
-	{0xc0, 0xc8},   
-	{0xc1, 0x96},   
+	{0xc0, 0xc8}, // Image horizontal size [10:3] bits (200 -> 800)  
+	{0xc1, 0x96}, // Image vertical size [10:3] bits (150 -> 600)   
+	// {0xc0, 0x64}, // Image horizontal size [10:3] bits (100 -> 400)  
+	// {0xc1, 0x4C}, // Image vertical size [10:3] bits (75 -> 300)   
+	// {0x8c, 0x00}, // [6] bit - image horizontal size [11] bit
+	//               // [5-3] bits - image horizontal size [2:0] bits (0)
+	// 			  // [2-0] bits - image vertical size [2:0] bits (0)
 	{0x86, 0x35},   
 	{0x50, 0x92},   
-	{0x51, 0x90},   
-	{0x52, 0x2c},   
+	{0x51, 0x90}, // H size [7:0] bits (144) 
+	{0x52, 0x2c}, // V size [7:0] bits (44)
+	// {0x51, 0x20}, // H size [7:0] bits (144) 
+	// {0x52, 0x20}, // V size [7:0] bits (44)
 	{0x53, 0x00},   
 	{0x54, 0x00},   
-	{0x55, 0x88},   
-	{0x57, 0x00},   
+	{0x55, 0x88}, // [7] bit - V size [8] bit (1 -> 256), [3] bit - H size [8] bit (1 -> 256)
+	{0x57, 0x00}, 
 	{0x5a, 0x58},   
 	{0x5b, 0x48},   
 	{0x5c, 0x00},   

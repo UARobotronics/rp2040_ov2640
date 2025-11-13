@@ -44,23 +44,50 @@ def capture(filename):
 
     ser.write(struct.pack('B', CMD_CAPTURE))
 
-    raw = ser.read(352*288*2)
+    print(f"Reading image data...")
+
+    # # RGB565 format
+    # total_bytes = 352*288*2
+    # raw = ser.read(352*288*2)
     
+    # YUV422 format
+    total_bytes = 352 * 288 * 2
+    # total_bytes = 1
+    raw = ser.read(total_bytes)
+
     img = Image.new('RGB', (352, 288))
     width, height = img.size
     data = img.load()
 
+    print_bytes = 352 * 3
+    print(f"Raw data (first {print_bytes} bytes):")
+    # # RGB565 format
+    # for y in range(height):
+    #     for x in range(width):
+    #         idx = y * width + x
+    #         v = struct.unpack('<H', raw[2*idx:2*(idx+1)])[0]
+    #         # Reverse binary representation
+    #         # v = int(bin(v)[2:].zfill(16)[::-1], 2)
+
+    #         r, g, b = v >> (5 + 6), (v >> 5) & 0b111111, v & 0b11111 
+
+    #         r = math.floor(r / 0x1f * 0xff)
+    #         g = math.floor(g / 0x3f * 0xff)
+    #         b = math.floor(b / 0x1f * 0xff)
+    #         data[x, y] = (r, g, b)
+
+    # YUV422 format
     for y in range(height):
         for x in range(width):
             idx = y * width + x
-            v = struct.unpack('<H', raw[2*idx:2*(idx+1)])[0]
+            # v = raw[idx]
+            v = raw[2*idx + 1]
 
-            r, g, b = v >> (5 + 6), (v >> 5) & 0b111111, v & 0b11111 
+            data[x, y] = (v, v, v)
 
-            r = math.floor(r / 0x1f * 0xff)
-            g = math.floor(g / 0x3f * 0xff)
-            b = math.floor(b / 0x1f * 0xff)
-            data[x, y] = (r, g, b)
+            if idx < print_bytes:
+            # if idx > total_bytes - print_bytes:
+                print(f"{v:02x} ", end='')
 
     img.save(filename)
 

@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include "ov2640.h"
 #include "ov2640_init.h"
 #include "hardware/dma.h"
@@ -86,6 +88,8 @@ void ov2640_regs_write(struct ov2640_config *config, const uint8_t (*regs_list)[
 		uint8_t reg = (*regs_list)[0];
 		uint8_t value = (*regs_list)[1];
 
+		printf("Reg 0x%02x = 0x%02x\n", reg, value);
+		
 		if (reg == 0x00 && value == 0x00) {
 			break;
 		}

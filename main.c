@@ -15,7 +15,8 @@ const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
 const uint8_t CMD_CAPTURE = 0xCC;
 
-uint8_t image_buf[352*288*2];
+//uint8_t image_buf[352*288*2]; // RGB565 format
+uint8_t image_buf[352*288*2]; // YUV422 format
 
 int main() {
 	stdio_uart_init();
@@ -45,6 +46,8 @@ int main() {
 
 	ov2640_init(&config);
 
+	printf("Camera initialized\n");
+
 	ov2640_reg_write(&config, 0xff, 0x01);
 	uint8_t midh = ov2640_reg_read(&config, 0x1C);
 	uint8_t midl = ov2640_reg_read(&config, 0x1D);
@@ -53,10 +56,12 @@ int main() {
 	while (true) {
 		uint8_t cmd;
 		uart_read_blocking(uart0, &cmd, 1);
+		//printf("Cmd %u received\n", cmd);
 
 		gpio_put(PIN_LED, !gpio_get(PIN_LED));
 		
 		if (cmd == CMD_REG_WRITE) {
+			printf("Cmd: register write\n");
 			uint8_t reg;
 			uart_read_blocking(uart0, &reg, 1);
 
@@ -65,6 +70,7 @@ int main() {
 
 			ov2640_reg_write(&config, reg, value);
 		} else if (cmd == CMD_REG_READ) {
+			printf("Cmd: register read\n");
 			uint8_t reg;
 			uart_read_blocking(uart0, &reg, 1);
 
@@ -72,8 +78,16 @@ int main() {
 
 			uart_write_blocking(uart0, &value, 1);
 		} else if (cmd == CMD_CAPTURE) {
+			//printf("Cmd: capture\n");
 			ov2640_capture_frame(&config);
+			//printf("Capture finished, transferring data...\n");
+
+			// uint8_t buf[1] = {0xFF};
+			// uart_write_blocking(uart0, buf, 1);
+
 			uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+
+			//printf("Data transfer finished\n");
 		}
 	}
 
