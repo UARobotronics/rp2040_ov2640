@@ -21,14 +21,14 @@ Wire the following Raspberry Pi Pico pins to an OV2640 board.
 | GP3               | XCLK[^no_xclk]    |
 | GP4 (I2C0 SDA)    | SDA[^i2c_pullups] |
 | GP5 (I2C0 SCL)    | SCL[^i2c_pullups] |
-| GP6               | D0                |
-| GP7               | D1                |
-| GP8               | D2                |
-| GP9               | D3                |
-| GP10              | D4                |
-| GP11              | D5                |
-| GP12              | D6                |
-| GP13              | D7                |
+| GP6               | D2                |
+| GP7               | D3                |
+| GP8               | D4                |
+| GP9               | D5                |
+| GP10              | D6                |
+| GP11              | D7                |
+| GP12              | D8                |
+| GP13              | D9                |
 | GP14              | PCLK              |
 | GP15              | HREF              |
 | GP16              | VSYNC             |
