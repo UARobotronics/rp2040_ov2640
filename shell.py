@@ -52,15 +52,20 @@ def capture(filename):
     
     # YUV422 format
     total_bytes = 352 * 288 * 2
-    # total_bytes = 1
-    raw = ser.read(total_bytes)
+    # Read frame count
+    raw = ser.read(1)
 
     img = Image.new('RGB', (352, 288))
     width, height = img.size
     data = img.load()
 
     print_bytes = 352 * 3
+    print(f"Frame count: {raw[0]}")
+    print(f"Data format: YUV422")
     print(f"Raw data (first {print_bytes} bytes):")
+
+    raw = ser.read(total_bytes)
+
     # # RGB565 format
     # for y in range(height):
     #     for x in range(width):

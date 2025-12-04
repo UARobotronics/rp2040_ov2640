@@ -10,6 +10,7 @@ static const uint8_t ov2640_vga[][2] = {
 	{0x3c, 0x32},  /* Reserved                              */
 	{0x11, 0x00},  /* Clock Rate Control                    */
 	{0x09, 0x02},  /* Common control 2                      */
+	// {0x10, 0x01},  /* Automatic exposure control [2:9] bits */
 	{0x04, 0xA8},  /* Mirror                                */
 	{0x13, 0xe5},  /* Common control 8                      */
 	{0x14, 0x48},  /* Common control 9                      */
@@ -43,12 +44,15 @@ static const uint8_t ov2640_vga[][2] = {
 	{0x3d, 0x34},  /* Reserved                              */
 	{0x5a, 0x57},  /* Reserved                              */
 	{0x12, 0x00},  /* Common control 7                      */
-	{0x11, 0x00},  /* Clock Rate Control                   2*/
+	// {0x12, 0x20},  /* Common control 7, CIF mode            */
+	{0x11, 0x00},  /* Clock Rate Control                    */
+	// {0x11, 0x80},  /* Clock Rate Control - double clock     */
 	{0x17, 0x11},  /* Horiz window start MSB 8bits          */
 	{0x18, 0x75},  /* Horiz window end MSB 8bits            */
 	{0x19, 0x01},  /* Vert window line start MSB 8bits      */
 	{0x1a, 0x97},  /* Vert window line end MSB 8bits        */
-	{0x32, 0x36},
+	//{0x32, 0x36},  /* UXVGA default - 0x36                  */
+	{0x32, 0x09},  /* CIF default - 0x09                    */
 	{0x03, 0x0f},
 	{0x37, 0x40},
 	{0x4f, 0xbb},
@@ -220,7 +224,7 @@ static const uint8_t ov2640_vga[][2] = {
 	{0x05, 0x00},
 	//{0xDA, 0x08}, // Image mode (RGB565)
 	{0xDA, 0x00}, // Image mode (YUV422)
-	{0xda, 0x09},
+	// {0xda, 0x09},
 	{0x98, 0x00},
 	{0x99, 0x00},
 	{0x00, 0x00},

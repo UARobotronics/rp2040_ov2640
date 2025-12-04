@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include "pico/stdlib.h"
+#include "pico/time.h"
+#include "hardware/clocks.h"
 #include "ov2640.h"
 
 const int PIN_LED = 25;
@@ -78,16 +80,33 @@ int main() {
 
 			uart_write_blocking(uart0, &value, 1);
 		} else if (cmd == CMD_CAPTURE) {
-			//printf("Cmd: capture\n");
+			//printf("Cmd: capture frame\n");
+        	uint64_t start_us = time_us_64();
+			uint8_t frame_count = 0;
 			ov2640_capture_frame(&config);
-			//printf("Capture finished, transferring data...\n");
+			while (time_us_64() - start_us < 1000000) {
+				//printf("Cmd: capture\n");
+				// ov2640_capture_frame(&config);
 
-			// uint8_t buf[1] = {0xFF};
-			// uart_write_blocking(uart0, buf, 1);
+				// Wait for vsync rising edge to start frame
+				while (gpio_get(config.pin_vsync) == true);
+				while (gpio_get(config.pin_vsync) == false);
+
+				//printf("Capture finished, transferring data...\n");
+
+				// uint8_t buf[1] = {0xFF};
+				// uart_write_blocking(uart0, buf, 1);
+
+				// uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+
+				//printf("Data transfer finished\n");
+				++frame_count;
+			}
+
+			uint8_t buf[1] = {frame_count};
+			uart_write_blocking(uart0, buf, 1);
 
 			uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
-
-			//printf("Data transfer finished\n");
 		}
 	}
 
