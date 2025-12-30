@@ -46,27 +46,78 @@ void ov2640_init(struct ov2640_config *config) {
 	image_program_init(config->pio, config->pio_sm, offset, config->pin_y2_pio_base);
 }
 
-void ov2640_capture_frame(struct ov2640_config *config) {
+uint8_t dma_channel = 0;
+
+extern volatile bool frame_chunk_ready;
+extern uint8_t frame_buf1[];
+
+uint16_t chunk_count = 0;
+
+void frame_buffer_handler()
+{
+	frame_chunk_ready = true;
+
+	// Clear interrupt register
+	//dma_channel_acknowledge_irq0(dma_channel);
+	dma_hw->ints0 = dma_hw->ints0;
+
+	if (chunk_count < 10) {
+		dma_channel_set_write_addr(dma_channel, frame_buf1, true);
+		//dma_channel_start(dma_channel);
+		++chunk_count;
+	}
+}
+
+void ov2640_capture_frame(struct ov2640_config *config, bool full_frame) {
+    irq_set_enabled(DMA_IRQ_0, false);
+
 	dma_channel_config c = dma_channel_get_default_config(config->dma_channel);
 	channel_config_set_read_increment(&c, false);
 	channel_config_set_write_increment(&c, true);
 	channel_config_set_dreq(&c, pio_get_dreq(config->pio, config->pio_sm, false));
 	channel_config_set_transfer_data_size(&c, DMA_SIZE_8);
 	
-	dma_channel_configure(
-		config->dma_channel, &c,
-		config->image_buf,
-		&config->pio->rxf[config->pio_sm],
-		config->image_buf_size,
-		false
-	);
+	if (full_frame)
+	{
+		dma_channel_configure(
+			config->dma_channel, &c,
+			config->image_buf,
+			&config->pio->rxf[config->pio_sm],
+			config->image_buf_size,
+			false
+		);
+	}
+	else
+	{
+		dma_channel_configure(
+			config->dma_channel, &c,
+			config->frame_buf1,
+			&config->pio->rxf[config->pio_sm],
+			config->frame_buf_size,
+			false
+		);
+
+		dma_channel = config->dma_channel;
+
+		dma_channel_set_irq0_enabled(config->dma_channel, true);
+		irq_set_exclusive_handler(DMA_IRQ_0, frame_buffer_handler);
+		irq_set_enabled(DMA_IRQ_0, true);
+	}
 
 	// Wait for vsync rising edge to start frame
 	while (gpio_get(config->pin_vsync) == true);
 	while (gpio_get(config->pin_vsync) == false);
 
 	dma_channel_start(config->dma_channel);
-	dma_channel_wait_for_finish_blocking(config->dma_channel);
+
+	if (full_frame)
+	{
+		dma_channel_wait_for_finish_blocking(config->dma_channel);
+	}
+	else
+	{
+		//dma_channel_wait_for_finish_blocking(config->dma_channel);
+	}
 }
 
 void ov2640_reg_write(struct ov2640_config *config, uint8_t reg, uint8_t value) {

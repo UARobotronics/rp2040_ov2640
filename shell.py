@@ -10,6 +10,11 @@ CMD_REG_WRITE = 0xAA
 CMD_REG_READ = 0xBB
 CMD_CAPTURE = 0xCC
 
+WIDTH = 352
+HEIGHT = 288
+# HEIGHT = 100
+BYTES_PER_PIXEL = 2
+
 ser = serial.Serial(sys.argv[1], 460800)
 atexit.register(lambda: ser.close())
 
@@ -51,18 +56,21 @@ def capture(filename):
     # raw = ser.read(352*288*2)
     
     # YUV422 format
-    total_bytes = 352 * 288 * 2
+    total_bytes = WIDTH * HEIGHT * BYTES_PER_PIXEL
     # Read frame count
     raw = ser.read(1)
-
-    img = Image.new('RGB', (352, 288))
-    width, height = img.size
-    data = img.load()
-
-    print_bytes = 352 * 3
+    print_bytes = WIDTH * 3
     print(f"Frame count: {raw[0]}")
+
+    # raw = ser.read(1)
+    # print(f"Chunk count: {raw[0]}")
+
     print(f"Data format: YUV422")
     print(f"Raw data (first {print_bytes} bytes):")
+
+    img = Image.new('RGB', (WIDTH, HEIGHT))
+    width, height = img.size
+    data = img.load()
 
     raw = ser.read(total_bytes)
 

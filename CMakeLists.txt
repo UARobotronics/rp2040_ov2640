@@ -18,6 +18,8 @@ cmake_minimum_required(VERSION 3.12)
 
 include(pico_sdk_import.cmake)
 
+set(CMAKE_BUILD_TYPE DEBUG)
+
 project(rp2040_ov2640)
 
 pico_sdk_init()
@@ -30,6 +32,7 @@ add_executable(firmware
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/image.pio)
 
 target_link_libraries(firmware
+	pico_multicore
 	pico_stdlib
 	hardware_dma
 	hardware_i2c

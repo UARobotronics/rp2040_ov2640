@@ -22,11 +22,14 @@ struct ov2640_config {
 	uint dma_channel;
 	uint8_t *image_buf;
 	size_t image_buf_size;
+	uint8_t *frame_buf1;
+	uint8_t *frame_buf2;
+	size_t frame_buf_size;
 };
 
 void ov2640_init(struct ov2640_config *config);
 
-void ov2640_capture_frame(struct ov2640_config *config);
+void ov2640_capture_frame(struct ov2640_config *config, bool full_frame);
 
 void ov2640_reg_write(struct ov2640_config *config, uint8_t reg, uint8_t value);
 uint8_t ov2640_reg_read(struct ov2640_config *config, uint8_t reg);

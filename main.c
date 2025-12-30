@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <string.h>
+
+#include "pico/multicore.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "hardware/clocks.h"
@@ -17,8 +20,50 @@ const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
 const uint8_t CMD_CAPTURE = 0xCC;
 
-//uint8_t image_buf[352*288*2]; // RGB565 format
-uint8_t image_buf[352*288*2]; // YUV422 format
+#define WIDTH 352
+#define HEIGHT 288
+#define BYTES_PER_PIXEL 2
+
+//uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
+uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // YUV422 format, 202752 bytes
+uint8_t frame_buf1[WIDTH * 20 * BYTES_PER_PIXEL]; // YUV422 format, 14080 byytes
+uint8_t frame_buf2[WIDTH * 1 * BYTES_PER_PIXEL]; // YUV422 format
+
+volatile bool frame_chunk_ready = false;
+extern uint8_t chunk_count;
+
+volatile uint16_t buf_tail = 0;
+volatile uint16_t received_chunks = 0;
+
+volatile uint16_t tail_history[20];
+volatile uint16_t tail_history_count = 0;
+
+void core1_main()
+{
+	while (true) {
+		if (frame_chunk_ready) {
+			memcpy(image_buf + buf_tail, frame_buf1, sizeof(frame_buf1));
+			buf_tail += sizeof(frame_buf1);
+			memset(image_buf + buf_tail, 0, WIDTH * 10 * BYTES_PER_PIXEL);
+			buf_tail += WIDTH * 10;
+
+			tail_history[tail_history_count++] = buf_tail;
+
+			++received_chunks;
+			frame_chunk_ready = false;
+		}
+	}
+}
+
+void reset_image_buffer()
+{
+	memset(image_buf, 0, sizeof(image_buf));
+	buf_tail = 0;
+	received_chunks = 0;
+
+	// memset(tail_history, 0, sizeof(tail_history));
+	tail_history_count = 0;
+}
 
 int main() {
 	stdio_uart_init();
@@ -45,6 +90,11 @@ int main() {
 	config.dma_channel = 0;
 	config.image_buf = image_buf;
 	config.image_buf_size = sizeof(image_buf);
+	config.frame_buf1 = frame_buf1;
+	config.frame_buf_size = sizeof(frame_buf1);
+	config.frame_buf2 = frame_buf2;
+
+	reset_image_buffer();
 
 	ov2640_init(&config);
 
@@ -54,6 +104,8 @@ int main() {
 	uint8_t midh = ov2640_reg_read(&config, 0x1C);
 	uint8_t midl = ov2640_reg_read(&config, 0x1D);
 	printf("MIDH = 0x%02x, MIDL = 0x%02x\n", midh, midl);
+
+	multicore_launch_core1(core1_main);
 
 	while (true) {
 		uint8_t cmd;
@@ -83,25 +135,30 @@ int main() {
 			//printf("Cmd: capture frame\n");
         	uint64_t start_us = time_us_64();
 			uint8_t frame_count = 0;
-			ov2640_capture_frame(&config);
-			while (time_us_64() - start_us < 1000000) {
-				//printf("Cmd: capture\n");
-				// ov2640_capture_frame(&config);
 
-				// Wait for vsync rising edge to start frame
-				while (gpio_get(config.pin_vsync) == true);
-				while (gpio_get(config.pin_vsync) == false);
+			reset_image_buffer();
 
-				//printf("Capture finished, transferring data...\n");
+			ov2640_capture_frame(&config, false);
+			// while (time_us_64() - start_us < 1000000) {
+			// 	//printf("Cmd: capture\n");
+			// 	// ov2640_capture_frame(&config);
 
-				// uint8_t buf[1] = {0xFF};
-				// uart_write_blocking(uart0, buf, 1);
+			// 	// Wait for vsync rising edge to start frame
+			// 	while (gpio_get(config.pin_vsync) == true);
+			// 	while (gpio_get(config.pin_vsync) == false);
 
-				// uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+			// 	//printf("Capture finished, transferring data...\n");
 
-				//printf("Data transfer finished\n");
-				++frame_count;
-			}
+			// 	// uint8_t buf[1] = {0xFF};
+			// 	// uart_write_blocking(uart0, buf, 1);
+
+			// 	// uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+
+			// 	//printf("Data transfer finished\n");
+			// 	++frame_count;
+			// }
+
+			sleep_ms(20);
 
 			uint8_t buf[1] = {frame_count};
 			uart_write_blocking(uart0, buf, 1);
