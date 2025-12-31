@@ -12,7 +12,7 @@ CMD_CAPTURE = 0xCC
 
 WIDTH = 352
 HEIGHT = 288
-# HEIGHT = 100
+CHUNK_HEIGHT = 20
 BYTES_PER_PIXEL = 2
 
 ser = serial.Serial(sys.argv[1], 460800)
@@ -55,15 +55,17 @@ def capture(filename):
     # total_bytes = 352*288*2
     # raw = ser.read(352*288*2)
     
-    # YUV422 format
-    total_bytes = WIDTH * HEIGHT * BYTES_PER_PIXEL
-    # Read frame count
-    raw = ser.read(1)
-    print_bytes = WIDTH * 3
-    print(f"Frame count: {raw[0]}")
+    # # Read frame count
+    # raw = ser.read(1)
+    # print(f"Frame count: {raw[0]}")
 
     # raw = ser.read(1)
     # print(f"Chunk count: {raw[0]}")
+
+    # YUV422 format
+    # total_bytes = WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
+    total_bytes = WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
+    print_bytes = WIDTH * 3
 
     print(f"Data format: YUV422")
     print(f"Raw data (first {print_bytes} bytes):")
@@ -93,14 +95,26 @@ def capture(filename):
     for y in range(height):
         for x in range(width):
             idx = y * width + x
-            # v = raw[idx]
-            v = raw[2*idx + 1]
+            data_ind = 2*idx + 1
+            if (data_ind < total_bytes):
+                v = raw[data_ind]
 
-            data[x, y] = (v, v, v)
+                data[x, y] = (v, v, v)
 
-            if idx < print_bytes:
-            # if idx > total_bytes - print_bytes:
-                print(f"{v:02x} ", end='')
+                if idx < print_bytes:
+                    print(f"{v:02x} ", end='')
+
+    for y in range(height):
+        for x in range(width):
+            idx = y * width + x
+            data_ind = 2*idx + 1
+            if (data_ind < total_bytes):
+                v = raw[data_ind]
+
+                data[x, y] = (v, v, v)
+
+                if idx < print_bytes:
+                    print(f"{v:02x} ", end='')
 
     img.save(filename)
 

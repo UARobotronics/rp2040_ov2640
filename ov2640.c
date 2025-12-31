@@ -50,6 +50,7 @@ uint8_t dma_channel = 0;
 
 extern volatile bool frame_chunk_ready;
 extern uint8_t frame_buf1[];
+extern uint8_t frame_buf2[];
 
 uint16_t chunk_count = 0;
 
@@ -61,8 +62,12 @@ void frame_buffer_handler()
 	//dma_channel_acknowledge_irq0(dma_channel);
 	dma_hw->ints0 = dma_hw->ints0;
 
-	if (chunk_count < 10) {
-		dma_channel_set_write_addr(dma_channel, frame_buf1, true);
+	if (chunk_count < 18) {
+		if (chunk_count % 2 == 0)
+			dma_channel_set_write_addr(dma_channel, frame_buf2, true);
+		else
+			dma_channel_set_write_addr(dma_channel, frame_buf1, true);
+
 		//dma_channel_start(dma_channel);
 		++chunk_count;
 	}

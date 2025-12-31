@@ -22,12 +22,13 @@ const uint8_t CMD_CAPTURE = 0xCC;
 
 #define WIDTH 352
 #define HEIGHT 288
+#define CHUNK_HEIGHT 20
 #define BYTES_PER_PIXEL 2
 
 //uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
 uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // YUV422 format, 202752 bytes
-uint8_t frame_buf1[WIDTH * 20 * BYTES_PER_PIXEL]; // YUV422 format, 14080 byytes
-uint8_t frame_buf2[WIDTH * 1 * BYTES_PER_PIXEL]; // YUV422 format
+uint8_t frame_buf1[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format, 14080 byytes
+uint8_t frame_buf2[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
 
 volatile bool frame_chunk_ready = false;
 extern uint8_t chunk_count;
@@ -42,10 +43,29 @@ void core1_main()
 {
 	while (true) {
 		if (frame_chunk_ready) {
-			memcpy(image_buf + buf_tail, frame_buf1, sizeof(frame_buf1));
-			buf_tail += sizeof(frame_buf1);
-			memset(image_buf + buf_tail, 0, WIDTH * 10 * BYTES_PER_PIXEL);
-			buf_tail += WIDTH * 10;
+			// memcpy(image_buf + buf_tail, frame_buf1, sizeof(frame_buf1));
+			// buf_tail += sizeof(frame_buf1);
+			// memset(image_buf + buf_tail, 0, WIDTH * 10 * BYTES_PER_PIXEL);
+			// buf_tail += WIDTH * 10;
+
+			if (received_chunks % 2 == 0) {
+				//uart_write_blocking(uart0, frame_buf1, sizeof(frame_buf1));
+			} else {
+				// uart_write_blocking(uart0, frame_buf2, sizeof(frame_buf1));
+			}
+
+			if (received_chunks == 10) {
+				uart_write_blocking(uart0, frame_buf1, sizeof(frame_buf1));
+			}
+
+			// TODO: next
+			// if (received_chunks < 20) {
+			// 	if (received_chunks % 2 == 0) {
+			// 		uart_write_blocking(uart0, frame_buf1, 20 * BYTES_PER_PIXEL);
+			// 	} else {
+			// 		uart_write_blocking(uart0, frame_buf2, 20 * BYTES_PER_PIXEL);
+			// 	}
+			// }
 
 			tail_history[tail_history_count++] = buf_tail;
 
@@ -160,10 +180,10 @@ int main() {
 
 			sleep_ms(20);
 
-			uint8_t buf[1] = {frame_count};
-			uart_write_blocking(uart0, buf, 1);
+			// uint8_t buf[1] = {frame_count};
+			// uart_write_blocking(uart0, buf, 1);
 
-			uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+			// uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
 		}
 	}
 
