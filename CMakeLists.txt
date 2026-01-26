@@ -27,6 +27,7 @@ pico_sdk_init()
 add_executable(firmware
 	ov2640.c
 	main.c
+	transfer.c
 )
 
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/image.pio)
@@ -38,6 +39,7 @@ target_link_libraries(firmware
 	hardware_i2c
 	hardware_pio
 	hardware_pwm
+	hardware_spi
 )
 
 pico_enable_stdio_usb(firmware 1)

@@ -5,6 +5,7 @@ from PIL import Image
 import serial
 import struct
 import sys
+import time
 
 CMD_REG_WRITE = 0xAA
 CMD_REG_READ = 0xBB
@@ -12,7 +13,9 @@ CMD_CAPTURE = 0xCC
 
 WIDTH = 352
 HEIGHT = 288
+CHUNKS_NUM = 20
 CHUNK_HEIGHT = 20
+CHUNK_LENGTH = 5
 BYTES_PER_PIXEL = 2
 
 ser = serial.Serial(sys.argv[1], 460800)
@@ -43,6 +46,25 @@ def reg_read(reg):
 
     return ser.read(1)[0]
 
+def read_buf():
+    ser.reset_output_buffer()
+    ser.reset_input_buffer()
+
+    print(f"Incoming data:\n")
+
+    # time.sleep(5)
+
+    ser.write(struct.pack('B', CMD_CAPTURE))
+
+    data = ser.read(200)
+    # data = ser.read_all()
+
+    print(f"Received {len(data)} bytes\n");
+
+    for i in range (0, len(data)):
+        # data = ser.read(1)
+        print(f"{data[i]:02x} ", end='')
+
 def capture(filename):
     ser.reset_output_buffer()
     ser.reset_input_buffer()
@@ -64,7 +86,7 @@ def capture(filename):
 
     # YUV422 format
     # total_bytes = WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
-    total_bytes = WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
+    total_bytes = WIDTH * HEIGHT * BYTES_PER_PIXEL
     print_bytes = WIDTH * 3
 
     print(f"Data format: YUV422")
@@ -104,17 +126,19 @@ def capture(filename):
                 if idx < print_bytes:
                     print(f"{v:02x} ", end='')
 
-    for y in range(height):
-        for x in range(width):
-            idx = y * width + x
-            data_ind = 2*idx + 1
-            if (data_ind < total_bytes):
-                v = raw[data_ind]
-
-                data[x, y] = (v, v, v)
-
-                if idx < print_bytes:
-                    print(f"{v:02x} ", end='')
+    # # Receive image data by chunks
+    # for y in range(150):
+    #     raw = ser.read(CHUNK_LENGTH * BYTES_PER_PIXEL)
+    #     print(f"Read {y} line");
+    #     for x in range(CHUNK_LENGTH):
+    #         data_ind = 2*x + 1
+    #         if (data_ind < total_bytes):
+    #             v = raw[data_ind]
+    # 
+    #             data[x, y] = (v, v, v)
+    # 
+    #             # if idx < print_bytes:
+    #             #     print(f"{v:02x} ", end='')
 
     img.save(filename)
 

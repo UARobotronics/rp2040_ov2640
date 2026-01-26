@@ -5,16 +5,19 @@
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "hardware/clocks.h"
+#include "hardware/spi.h"
+
 #include "ov2640.h"
+#include "transfer.h"
 
 const int PIN_LED = 25;
 
-const int PIN_CAM_SIOC = 5; // I2C0 SCL
-const int PIN_CAM_SIOD = 4; // I2C0 SDA
+const int PIN_CAM_SIOC = 21; // I2C0 SCL
+const int PIN_CAM_SIOD = 20; // I2C0 SDA
 const int PIN_CAM_RESETB = 2;
 const int PIN_CAM_XCLK = 3;
-const int PIN_CAM_VSYNC = 16;
-const int PIN_CAM_Y2_PIO_BASE = 6;
+const int PIN_CAM_VSYNC = 14;
+const int PIN_CAM_Y2_PIO_BASE = 4;
 
 const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
@@ -22,7 +25,6 @@ const uint8_t CMD_CAPTURE = 0xCC;
 
 #define WIDTH 352
 #define HEIGHT 288
-#define CHUNK_HEIGHT 20
 #define BYTES_PER_PIXEL 2
 
 //uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
@@ -39,6 +41,8 @@ volatile uint16_t received_chunks = 0;
 volatile uint16_t tail_history[20];
 volatile uint16_t tail_history_count = 0;
 
+enum transfer_type_s transfer_type = TRANSFER_UART;
+
 void core1_main()
 {
 	while (true) {
@@ -54,20 +58,20 @@ void core1_main()
 				// uart_write_blocking(uart0, frame_buf2, sizeof(frame_buf1));
 			}
 
-			if (received_chunks == 10) {
-				uart_write_blocking(uart0, frame_buf1, sizeof(frame_buf1));
-			}
-
-			// TODO: next
-			// if (received_chunks < 20) {
-			// 	if (received_chunks % 2 == 0) {
-			// 		uart_write_blocking(uart0, frame_buf1, 20 * BYTES_PER_PIXEL);
-			// 	} else {
-			// 		uart_write_blocking(uart0, frame_buf2, 20 * BYTES_PER_PIXEL);
-			// 	}
+			// if (received_chunks == 10) {
+			// 	uart_write_blocking(uart0, frame_buf1, sizeof(frame_buf1));
 			// }
 
-			tail_history[tail_history_count++] = buf_tail;
+			if (received_chunks < NUMBER_OF_CHUNKS) {
+				if (received_chunks % 2 == 0) {
+					// uart_write_blocking(uart0, frame_buf1, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
+					send_data(frame_buf1, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
+				} else {
+					send_data(frame_buf2, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
+				}
+			}
+
+			// tail_history[tail_history_count++] = buf_tail;
 
 			++received_chunks;
 			frame_chunk_ready = false;
@@ -152,13 +156,15 @@ int main() {
 
 			uart_write_blocking(uart0, &value, 1);
 		} else if (cmd == CMD_CAPTURE) {
-			//printf("Cmd: capture frame\n");
+			printf("Cmd: capture frame\n");
         	uint64_t start_us = time_us_64();
 			uint8_t frame_count = 0;
 
+			bool full_frame = true;
+
 			reset_image_buffer();
 
-			ov2640_capture_frame(&config, false);
+			ov2640_capture_frame(&config, full_frame);
 			// while (time_us_64() - start_us < 1000000) {
 			// 	//printf("Cmd: capture\n");
 			// 	// ov2640_capture_frame(&config);
@@ -170,20 +176,22 @@ int main() {
 			// 	//printf("Capture finished, transferring data...\n");
 
 			// 	// uint8_t buf[1] = {0xFF};
-			// 	// uart_write_blocking(uart0, buf, 1);
+			// 	// send_data(buf, 1);
 
-			// 	// uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+			// 	// send_data(config.image_buf, config.image_buf_size);
 
 			// 	//printf("Data transfer finished\n");
 			// 	++frame_count;
 			// }
 
-			sleep_ms(20);
+			// sleep_ms(20);
 
 			// uint8_t buf[1] = {frame_count};
-			// uart_write_blocking(uart0, buf, 1);
+			// send_data(buf, 1);
 
-			// uart_write_blocking(uart0, config.image_buf, config.image_buf_size);
+			if (full_frame) {
+				send_data(config.image_buf, config.image_buf_size);
+			}
 		}
 	}
 
