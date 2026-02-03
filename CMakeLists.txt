@@ -25,9 +25,12 @@ project(rp2040_ov2640)
 pico_sdk_init()
 
 add_executable(firmware
-	ov2640.c
+	ethernet.c
 	main.c
+	ov2640.c
 	transfer.c
+    network/network.c
+    network/drivers/w5500.c
 )
 
 pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/image.pio)
@@ -44,5 +47,9 @@ target_link_libraries(firmware
 
 pico_enable_stdio_usb(firmware 1)
 pico_enable_stdio_uart(firmware 1)
+
+target_include_directories(firmware PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
 
 pico_add_extra_outputs(firmware)

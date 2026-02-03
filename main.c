@@ -7,6 +7,10 @@
 #include "hardware/clocks.h"
 #include "hardware/spi.h"
 
+#include "network/drivers/w5500.h"
+#include "network/network.h"
+
+#include "ethernet.h"
 #include "ov2640.h"
 #include "transfer.h"
 
@@ -41,7 +45,7 @@ volatile uint16_t received_chunks = 0;
 volatile uint16_t tail_history[20];
 volatile uint16_t tail_history_count = 0;
 
-enum transfer_type_s transfer_type = TRANSFER_UART;
+enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
 
 void core1_main()
 {
@@ -90,7 +94,7 @@ void reset_image_buffer()
 }
 
 int main() {
-	stdio_uart_init();
+	stdio_init_all();
 	uart_set_baudrate(uart0, 460800);
 
 	printf("\n\nBooted!\n");
@@ -129,11 +133,23 @@ int main() {
 	uint8_t midl = ov2640_reg_read(&config, 0x1D);
 	printf("MIDH = 0x%02x, MIDL = 0x%02x\n", midh, midl);
 
+	if (transfer_type == TRANSFER_ETHERNET)
+	{
+		bool success = ethernet_init();
+
+		if (!success)
+		{
+			printf("Ethernet init failed!\n");
+
+			return 1;
+		}
+	}
+	
 	multicore_launch_core1(core1_main);
 
 	while (true) {
-		uint8_t cmd;
-		uart_read_blocking(uart0, &cmd, 1);
+		uint8_t cmd = CMD_CAPTURE;
+		//uart_read_blocking(uart0, &cmd, 1);
 		//printf("Cmd %u received\n", cmd);
 
 		gpio_put(PIN_LED, !gpio_get(PIN_LED));
@@ -190,7 +206,11 @@ int main() {
 			// send_data(buf, 1);
 
 			if (full_frame) {
+	        	uint64_t start_us = time_us_64();
 				send_data(config.image_buf, config.image_buf_size);
+	        	uint64_t end_us = time_us_64();
+				printf("%llu micros passed\n", end_us - start_us);
+				//sleep_ms(100);
 			}
 		}
 	}

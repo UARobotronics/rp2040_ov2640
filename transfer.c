@@ -1,8 +1,10 @@
+#include "transfer.h"
+
 #include <stdint.h>
 
 #include "hardware/uart.h"
 
-#include "transfer.h"
+#include "ethernet.h"
 
 extern enum transfer_type_s transfer_type;
 

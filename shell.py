@@ -123,9 +123,8 @@ def capture(filename):
 
                 data[x, y] = (v, v, v)
 
-                if idx < print_bytes:
-                    print(f"{v:02x} ", end='')
-
+    for ind in range(print_bytes):
+        print(f"{raw[ind]:02x} ", end='')
     # # Receive image data by chunks
     # for y in range(150):
     #     raw = ser.read(CHUNK_LENGTH * BYTES_PER_PIXEL)
