@@ -33,7 +33,7 @@ const uint8_t CMD_CAPTURE = 0xCC;
 
 //uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
 uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // YUV422 format, 202752 bytes
-uint8_t frame_buf1[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format, 14080 byytes
+uint8_t frame_buf1[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
 uint8_t frame_buf2[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
 
 volatile bool frame_chunk_ready = false;
@@ -57,23 +57,24 @@ void core1_main()
 			// buf_tail += WIDTH * 10;
 
 			if (received_chunks % 2 == 0) {
-				//uart_write_blocking(uart0, frame_buf1, sizeof(frame_buf1));
+				send_data(frame_buf1, sizeof(frame_buf1));
+				// send_data(frame_buf1, 100);
 			} else {
-				// uart_write_blocking(uart0, frame_buf2, sizeof(frame_buf1));
+				send_data(frame_buf2, sizeof(frame_buf2));
+				// send_data(frame_buf2, 100);
 			}
 
 			// if (received_chunks == 10) {
-			// 	uart_write_blocking(uart0, frame_buf1, sizeof(frame_buf1));
+			// 	send_data(frame_buf1, sizeof(frame_buf1));
 			// }
 
-			if (received_chunks < NUMBER_OF_CHUNKS) {
-				if (received_chunks % 2 == 0) {
-					// uart_write_blocking(uart0, frame_buf1, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
-					send_data(frame_buf1, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
-				} else {
-					send_data(frame_buf2, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
-				}
-			}
+			// if (received_chunks < NUMBER_OF_CHUNKS) {
+			// 	if (received_chunks % 2 == 0) {
+			// 		send_data(frame_buf1, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
+			// 	} else {
+			// 		send_data(frame_buf2, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
+			// 	}
+			// }
 
 			// tail_history[tail_history_count++] = buf_tail;
 
@@ -128,15 +129,9 @@ int main() {
 
 	printf("Camera initialized\n");
 
-	ov2640_reg_write(&config, 0xff, 0x01);
-	uint8_t midh = ov2640_reg_read(&config, 0x1C);
-	uint8_t midl = ov2640_reg_read(&config, 0x1D);
-	printf("MIDH = 0x%02x, MIDL = 0x%02x\n", midh, midl);
-
 	if (transfer_type == TRANSFER_ETHERNET)
 	{
 		bool success = ethernet_init();
-
 		if (!success)
 		{
 			printf("Ethernet init failed!\n");
@@ -147,10 +142,11 @@ int main() {
 	
 	multicore_launch_core1(core1_main);
 
+	uint8_t cmd = CMD_CAPTURE;
+
 	while (true) {
-		uint8_t cmd = CMD_CAPTURE;
-		//uart_read_blocking(uart0, &cmd, 1);
-		//printf("Cmd %u received\n", cmd);
+		// uart_read_blocking(uart0, &cmd, 1);
+		// printf("Cmd %u received\n", cmd);
 
 		gpio_put(PIN_LED, !gpio_get(PIN_LED));
 		
@@ -178,40 +174,35 @@ int main() {
 
 			bool full_frame = true;
 
-			reset_image_buffer();
-
 			ov2640_capture_frame(&config, full_frame);
-			// while (time_us_64() - start_us < 1000000) {
-			// 	//printf("Cmd: capture\n");
-			// 	// ov2640_capture_frame(&config);
+			while (time_us_64() - start_us < 1 * 1000 * 1000) {
+				// ov2640_capture_frame(&config);
 
-			// 	// Wait for vsync rising edge to start frame
-			// 	while (gpio_get(config.pin_vsync) == true);
-			// 	while (gpio_get(config.pin_vsync) == false);
+				while (gpio_get(config.pin_vsync) == true);
+				while (gpio_get(config.pin_vsync) == false);
 
-			// 	//printf("Capture finished, transferring data...\n");
+				if (full_frame) {
+					// uint64_t start_us = time_us_64();
+					send_data(config.image_buf, config.image_buf_size);
+					// uint64_t end_us = time_us_64();
+					// printf("%llu micros passed\n", end_us - start_us);
+				}
 
-			// 	// uint8_t buf[1] = {0xFF};
-			// 	// send_data(buf, 1);
-
-			// 	// send_data(config.image_buf, config.image_buf_size);
-
-			// 	//printf("Data transfer finished\n");
-			// 	++frame_count;
-			// }
-
-			// sleep_ms(20);
-
-			// uint8_t buf[1] = {frame_count};
-			// send_data(buf, 1);
-
-			if (full_frame) {
-	        	uint64_t start_us = time_us_64();
-				send_data(config.image_buf, config.image_buf_size);
-	        	uint64_t end_us = time_us_64();
-				printf("%llu micros passed\n", end_us - start_us);
-				//sleep_ms(100);
+				++frame_count;
 			}
+
+			// cmd = 0;
+
+			sleep_ms(200);
+			printf("FPS: %u\n", frame_count);
+            
+			// if (full_frame) {
+	        // 	uint64_t start_us = time_us_64();
+			// 	send_data(config.image_buf, config.image_buf_size);
+	        // 	uint64_t end_us = time_us_64();
+			// 	printf("%llu micros passed\n", end_us - start_us);
+			// 	//sleep_ms(100);
+			// }
 		}
 	}
 
