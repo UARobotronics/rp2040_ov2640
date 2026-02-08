@@ -49,28 +49,26 @@ void ov2640_init(struct ov2640_config *config) {
 
 uint8_t dma_channel = 0;
 
-extern volatile bool frame_chunk_ready;
 extern uint8_t frame_buf1[];
 extern uint8_t frame_buf2[];
+extern uint8_t* transfer_buf;
 
 volatile uint16_t chunk_count = 0;
 
 void frame_buffer_handler()
 {
 	// Clear interrupt register
-	//dma_channel_acknowledge_irq0(dma_channel);
 	dma_hw->ints0 = dma_hw->ints0;
 
-	frame_chunk_ready = true;
-
-	if (chunk_count < NUMBER_OF_CHUNKS) {
-		if (chunk_count % 2 == 0)
-			dma_channel_set_write_addr(dma_channel, frame_buf2, true);
-		else
-			dma_channel_set_write_addr(dma_channel, frame_buf1, true);
-
-		++chunk_count;
+	if (chunk_count % 2 == 0) {
+		transfer_buf = frame_buf1;
+		dma_channel_set_write_addr(dma_channel, frame_buf2, true);
+	} else {
+		transfer_buf = frame_buf2;
+		dma_channel_set_write_addr(dma_channel, frame_buf1, true);
 	}
+
+	++chunk_count;
 }
 
 void ov2640_capture_frame(struct ov2640_config *config, bool full_frame) {

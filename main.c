@@ -33,53 +33,26 @@ const uint8_t CMD_CAPTURE = 0xCC;
 
 //uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
 uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // YUV422 format, 202752 bytes
-uint8_t frame_buf1[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
-uint8_t frame_buf2[WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
 
-volatile bool frame_chunk_ready = false;
+#define CHUNK_SIZE 		WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
+uint8_t frame_buf1[CHUNK_SIZE]; // YUV422 format
+uint8_t frame_buf2[CHUNK_SIZE]; // YUV422 format
+uint8_t* transfer_buf = NULL;
+
 extern uint8_t chunk_count;
 
 volatile uint16_t buf_tail = 0;
 volatile uint16_t received_chunks = 0;
-
-volatile uint16_t tail_history[20];
-volatile uint16_t tail_history_count = 0;
 
 enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
 
 void core1_main()
 {
 	while (true) {
-		if (frame_chunk_ready) {
-			// memcpy(image_buf + buf_tail, frame_buf1, sizeof(frame_buf1));
-			// buf_tail += sizeof(frame_buf1);
-			// memset(image_buf + buf_tail, 0, WIDTH * 10 * BYTES_PER_PIXEL);
-			// buf_tail += WIDTH * 10;
-
-			if (received_chunks % 2 == 0) {
-				send_data(frame_buf1, sizeof(frame_buf1));
-				// send_data(frame_buf1, 100);
-			} else {
-				send_data(frame_buf2, sizeof(frame_buf2));
-				// send_data(frame_buf2, 100);
-			}
-
-			// if (received_chunks == 10) {
-			// 	send_data(frame_buf1, sizeof(frame_buf1));
-			// }
-
-			// if (received_chunks < NUMBER_OF_CHUNKS) {
-			// 	if (received_chunks % 2 == 0) {
-			// 		send_data(frame_buf1, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
-			// 	} else {
-			// 		send_data(frame_buf2, SEND_CHUNK_LENGTH * BYTES_PER_PIXEL);
-			// 	}
-			// }
-
-			// tail_history[tail_history_count++] = buf_tail;
-
+		if (transfer_buf) {
+			send_data(transfer_buf, CHUNK_SIZE / 2);
 			++received_chunks;
-			frame_chunk_ready = false;
+			transfer_buf = NULL;
 		}
 	}
 }
@@ -89,9 +62,6 @@ void reset_image_buffer()
 	memset(image_buf, 0, sizeof(image_buf));
 	buf_tail = 0;
 	received_chunks = 0;
-
-	// memset(tail_history, 0, sizeof(tail_history));
-	tail_history_count = 0;
 }
 
 int main() {
@@ -172,36 +142,29 @@ int main() {
         	uint64_t start_us = time_us_64();
 			uint8_t frame_count = 0;
 
-			bool full_frame = true;
+			bool full_frame = false;
 
 			ov2640_capture_frame(&config, full_frame);
+			received_chunks = 0;
 			while (time_us_64() - start_us < 1 * 1000 * 1000) {
 				// ov2640_capture_frame(&config);
 
 				while (gpio_get(config.pin_vsync) == true);
 				while (gpio_get(config.pin_vsync) == false);
 
-				if (full_frame) {
-					// uint64_t start_us = time_us_64();
+				if (full_frame)
 					send_data(config.image_buf, config.image_buf_size);
-					// uint64_t end_us = time_us_64();
-					// printf("%llu micros passed\n", end_us - start_us);
-				}
 
 				++frame_count;
 			}
 
 			// cmd = 0;
 
-			sleep_ms(200);
 			printf("FPS: %u\n", frame_count);
+			printf("Sent chunks: %u\n", received_chunks);
             
 			// if (full_frame) {
-	        // 	uint64_t start_us = time_us_64();
 			// 	send_data(config.image_buf, config.image_buf_size);
-	        // 	uint64_t end_us = time_us_64();
-			// 	printf("%llu micros passed\n", end_us - start_us);
-			// 	//sleep_ms(100);
 			// }
 		}
 	}
