@@ -19,6 +19,23 @@ enum pixel_format_s {
 	PIXEL_FORMAT_YUV,
 };
 
+// typedef struct __attribute__((packed))
+// {
+// 	uint16_t frame : 13;
+// 	uint16_t row : 11;
+// 	uint8_t flags: 6;
+// 	uint8_t format: 2;
+// 	uint8_t* data;
+// } packet_data_t;
+
+typedef struct
+{
+	bool ready;
+	uint16_t pixel_data_size;
+	// packet_data_t packet_data;
+	uint8_t* pixel_data;
+} transfer_data_t;
+
 const int PIN_LED = 25;
 
 const int PIN_CAM_SIOC = 21; // I2C0 SCL
@@ -36,6 +53,8 @@ const uint8_t CMD_CAPTURE = 0xCC;
 #define FRAME_HEIGHT 288
 #define BYTES_PER_PIXEL 2
 
+const int PACKET_HEADER_SIZE = 4;
+
 // uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
 uint8_t image_buf[FRAME_WIDTH * FRAME_HEIGHT * BYTES_PER_PIXEL];	// YUV422 format, 202752 bytes
 
@@ -45,28 +64,37 @@ uint8_t frame_buf2[CHUNK_SIZE];  // YUV422 format
 uint8_t* frame_ready_buf = NULL;
 uint8_t process_buf1[CHUNK_SIZE];
 uint8_t process_buf2[CHUNK_SIZE];
-uint8_t* transfer_buf = NULL;
 
-extern uint8_t chunk_count;
+// uint8_t* transfer_buf = NULL;
+transfer_data_t transfer_data = {
+	.ready = false,
+	.pixel_data_size = 0,
+	.pixel_data = NULL
+};
 
-volatile uint16_t buf_tail = 0;
+extern volatile uint16_t chunk_count;
+
 volatile uint16_t received_chunks = 0;
-volatile uint16_t current_row = 0;
+uint16_t current_row = 0;
+uint16_t current_frame = 0;
 
 enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
 enum pixel_format_s pixel_format = PIXEL_FORMAT_YUV;
+uint8_t pixel_encoding_flags = 0;
+uint8_t pixel_encoding_format = 0;
 
 void core1_main()
 {
-	while (true) {
-		if (transfer_buf) {
+	while (true)
+	{
+		if (transfer_data.ready)
+		{
+			transfer_data.ready = false;
 			uint64_t start = time_us_64();
-			send_data(transfer_buf, CHUNK_SIZE / 2);
-			// send_data(transfer_buf, 1);
+			send_data(transfer_data.pixel_data, transfer_data.pixel_data_size);
 			uint64_t end = time_us_64();
 			// printf("Sent row data in %llu micros\n", end - start);
 			++received_chunks;
-			transfer_buf = NULL;
 		}
 	}
 }
@@ -74,13 +102,32 @@ void core1_main()
 void reset_image_buffer()
 {
 	memset(image_buf, 0, sizeof(image_buf));
-	buf_tail = 0;
 	received_chunks = 0;
 }
 
 uint16_t process_yuv_raw_data(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* out_buf)
 {
 	uint16_t out_len = 0;
+	
+	// Create packet header first
+	// 13 bits for frame number
+
+	out_buf[0] = (current_frame >> 5) & 0xFF;
+	out_buf[1] = (current_frame & 0x1F) << 3;
+	// 11 bits for row number
+	out_buf[1] |= (current_row >> 8) & 0x7;
+	out_buf[2] = current_row & 0xFF;
+	// 6 bits for flags
+	out_buf[3] = (pixel_encoding_flags << 2) & 0xFF;
+	// 2 bits for pixel format
+	// 0 - 5 bits of color data
+	// 1 - 6 bits of color data
+	// 2 - 7 bits of color data
+	// 3 - 8 bits of color data
+	out_buf[3] |= pixel_encoding_format & 0x3;
+
+	out_len = 4;
+
 	for (int i = 1; i < in_len; i += 2) {
 		out_buf[out_len] = in_buf[i];
 		// out_buf[out_len] = in_buf[i] & 0xFC;
@@ -201,7 +248,9 @@ int main() {
 								case PIXEL_FORMAT_YUV:
 									uint64_t start = time_us_64();
 									uint16_t len = process_yuv_raw_data(frame_ready_buf, CHUNK_SIZE, process_buf);
-									transfer_buf = process_buf;
+									transfer_data.pixel_data_size = len;
+									transfer_data.pixel_data = process_buf;
+									transfer_data.ready = true;
 									uint64_t end = time_us_64();
 
 									// printf("Processed row data in %llu micros\n", end - start);
@@ -221,10 +270,17 @@ int main() {
 						}
 
 						frame_ready_buf = NULL;
+						current_row = (current_row + 1) % FRAME_HEIGHT;
+					}
+					else
+					if (gpio_get(config.pin_vsync) == false)
+					{
+						current_row = 0;
 					}
 				}
 
 				++frame_count;
+				++current_frame;
 			}
 
 			// cmd = 0;
