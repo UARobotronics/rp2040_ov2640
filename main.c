@@ -82,6 +82,7 @@ enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
 enum pixel_format_s pixel_format = PIXEL_FORMAT_YUV;
 uint8_t pixel_encoding_flags = 0;
 uint8_t pixel_encoding_format = 0;
+bool full_frame_capturing = false;
 
 void core1_main()
 {
@@ -97,12 +98,6 @@ void core1_main()
 			++received_chunks;
 		}
 	}
-}
-
-void reset_image_buffer()
-{
-	memset(image_buf, 0, sizeof(image_buf));
-	received_chunks = 0;
 }
 
 uint16_t process_yuv_raw_data(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* out_buf)
@@ -169,11 +164,11 @@ int main() {
 	config.frame_buf_size = sizeof(frame_buf1);
 	config.frame_buf2 = frame_buf2;
 
-	reset_image_buffer();
-
 	ov2640_init(&config);
-
 	printf("Camera initialized\n");
+
+	ov2640_init_capture(&config, full_frame_capturing);
+	printf("Streaming started\n");
 
 	if (transfer_type == TRANSFER_ETHERNET)
 	{
@@ -188,104 +183,78 @@ int main() {
 	
 	multicore_launch_core1(core1_main);
 
-	uint8_t cmd = CMD_CAPTURE;
+	uint64_t start_time = time_us_64();
+	uint16_t frame_count = 0;
+	uint16_t missed_rows = 0;
+	uint16_t prev_row = current_row;
+	received_chunks = 0;
 
-	while (true) {
-		// uart_read_blocking(uart0, &cmd, 1);
-		// printf("Cmd %u received\n", cmd);
-
+	while (true)
+	{
 		gpio_put(PIN_LED, !gpio_get(PIN_LED));
-		
-		if (cmd == CMD_REG_WRITE) {
-			printf("Cmd: register write\n");
-			uint8_t reg;
-			uart_read_blocking(uart0, &reg, 1);
 
-			uint8_t value;
-			uart_read_blocking(uart0, &value, 1);
+		if (full_frame_capturing)
+		{
+			while (gpio_get(config.pin_vsync) == true);
+			while (gpio_get(config.pin_vsync) == false);
 
-			ov2640_reg_write(&config, reg, value);
-		} else if (cmd == CMD_REG_READ) {
-			printf("Cmd: register read\n");
-			uint8_t reg;
-			uart_read_blocking(uart0, &reg, 1);
+			send_data(config.image_buf, config.image_buf_size);
+			++frame_count;
+		}
+		else
+		{
+			if (frame_ready_buf)
+			{
+				uint8_t* process_buf = NULL;
+				if (frame_ready_buf == frame_buf1)
+					process_buf = process_buf1;
+				else if (frame_ready_buf == frame_buf2)
+					process_buf = process_buf2;
 
-			uint8_t value = ov2640_reg_read(&config, reg);
-
-			uart_write_blocking(uart0, &value, 1);
-		} else if (cmd == CMD_CAPTURE) {
-			printf("Cmd: capture frame\n");
-			uint64_t start_us = time_us_64();
-			uint16_t frame_count = 0;
-
-			bool full_frame = false;
-
-			ov2640_capture_frame(&config, full_frame);
-			received_chunks = 0;
-			uint16_t prev_row = current_row;
-			uint16_t missed_rows = 0;
-			while (time_us_64() - start_us < 1 * 1000 * 1000) {
-				if (full_frame)
+				if (process_buf)
 				{
-					while (gpio_get(config.pin_vsync) == true);
-					while (gpio_get(config.pin_vsync) == false);
-					send_data(config.image_buf, config.image_buf_size);
-				}
-				else
-				{
-					uint8_t* process_buf = NULL;
-					if (frame_ready_buf)
+					switch (pixel_format)
 					{
-						if (frame_ready_buf == frame_buf1)
-							process_buf = process_buf1;
-						else if (frame_ready_buf == frame_buf2)
-							process_buf = process_buf2;
+						case PIXEL_FORMAT_YUV:
+							uint64_t start = time_us_64();
+							uint16_t len = process_yuv_raw_data(frame_ready_buf, CHUNK_SIZE, process_buf);
+							transfer_data.pixel_data_size = len;
+							transfer_data.pixel_data = process_buf;
+							transfer_data.ready = true;
+							uint64_t end = time_us_64();
 
-						if (process_buf)
-						{
-							switch (pixel_format)
-							{
-								case PIXEL_FORMAT_YUV:
-									uint64_t start = time_us_64();
-									uint16_t len = process_yuv_raw_data(frame_ready_buf, CHUNK_SIZE, process_buf);
-									transfer_data.pixel_data_size = len;
-									transfer_data.pixel_data = process_buf;
-									transfer_data.ready = true;
-									uint64_t end = time_us_64();
+							// printf("Processed row data in %llu micros\n", end - start);
+							// printf("Processed buffer length for %u row: %u\n", current_row, len);
+							// printf("Received %u row data\n", current_row);
 
-									// printf("Processed row data in %llu micros\n", end - start);
-									// printf("Processed buffer length for %u row: %u\n", current_row, len);
-									// printf("Received %u row data\n", current_row);
+							if (current_row - prev_row > 1)
+								++missed_rows;
 
-									if (current_row - prev_row > 1)
-										++missed_rows;
+							prev_row = current_row;
 
-									prev_row = current_row;
-
-									break;
-								case PIXEL_FORMAT_RGB:
-								default:
-									break;
-							}
-						}
-
-						frame_ready_buf = NULL;
-						current_row = (current_row + 1) % FRAME_HEIGHT;
-					}
-					else
-					if (gpio_get(config.pin_vsync) == false)
-					{
-						current_row = 0;
+							break;
+						case PIXEL_FORMAT_RGB:
+						default:
+							break;
 					}
 				}
 
-				++frame_count;
-				++current_frame;
+				frame_ready_buf = NULL;
+				current_row = (current_row + 1) % FRAME_HEIGHT;
+			}
+			else
+			if (gpio_get(config.pin_vsync) == false)
+			{
+				// Period between frames data. No image data is coming now.
+				current_row = 0;
 			}
 
-			// cmd = 0;
+			++current_frame;
+		}
 
-			if (full_frame)
+		if (time_us_64() - start_time > 1 * 1000 * 1000)
+		{
+			if (full_frame_capturing)
 			{
 				printf("FPS: %u\n", frame_count);
 			}
@@ -295,6 +264,11 @@ int main() {
 				printf("Obtained chunks: %u\n", received_chunks);
 				printf("Missed rows: %u\n", missed_rows);
 			}
+
+			start_time = time_us_64();
+			frame_count = 0;
+			missed_rows = 0;
+			received_chunks = 0;
 		}
 	}
 

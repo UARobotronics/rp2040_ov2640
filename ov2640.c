@@ -72,7 +72,7 @@ void frame_buffer_handler()
 	++chunk_count;
 }
 
-void ov2640_capture_frame(struct ov2640_config *config, bool full_frame) {
+void ov2640_init_capture(struct ov2640_config *config, bool full_frame) {
 	chunk_count = 0;
 
 	irq_set_enabled(DMA_IRQ_0, false);
@@ -112,7 +112,7 @@ void ov2640_capture_frame(struct ov2640_config *config, bool full_frame) {
 
 	// Wait for vsync rising edge to start frame
 	while (gpio_get(config->pin_vsync) == true);
-	while (gpio_get(config->pin_vsync) == false);
+	// while (gpio_get(config->pin_vsync) == false);
 
 	dma_channel_start(config->dma_channel);
 
