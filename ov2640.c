@@ -112,7 +112,11 @@ void ov2640_init_capture(struct ov2640_config *config, bool full_frame) {
 
 	// Wait for vsync rising edge to start frame
 	while (gpio_get(config->pin_vsync) == true);
+	// uint64_t start = time_us_64();
 	// while (gpio_get(config->pin_vsync) == false);
+	// uint64_t end = time_us_64();
+
+	// printf("VSYNC has been low for %llu micros\n", end - start);
 
 	dma_channel_start(config->dma_channel);
 

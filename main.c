@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include "tusb.h"
 
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
@@ -139,6 +140,10 @@ int main() {
 	stdio_init_all();
 	uart_set_baudrate(uart0, 460800);
 
+	// Wait until USB is ready for serial output
+	while (!tud_cdc_connected())
+		sleep_ms(10);
+
 	printf("\n\nBooted!\n");
 
 	gpio_init(PIN_LED);
@@ -167,9 +172,6 @@ int main() {
 	ov2640_init(&config);
 	printf("Camera initialized\n");
 
-	ov2640_init_capture(&config, full_frame_capturing);
-	printf("Streaming started\n");
-
 	if (transfer_type == TRANSFER_ETHERNET)
 	{
 		bool success = ethernet_init();
@@ -182,6 +184,9 @@ int main() {
 	}
 	
 	multicore_launch_core1(core1_main);
+
+	ov2640_init_capture(&config, full_frame_capturing);
+	printf("Camera streaming initialized\n");
 
 	uint64_t start_time = time_us_64();
 	uint16_t frame_count = 0;
