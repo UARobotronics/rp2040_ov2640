@@ -57,7 +57,8 @@ const uint8_t CMD_CAPTURE = 0xCC;
 const int PACKET_HEADER_SIZE = 4;
 
 // uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
-uint8_t image_buf[FRAME_WIDTH * FRAME_HEIGHT * BYTES_PER_PIXEL];	// YUV422 format, 202752 bytes
+// uint8_t image_buf[FRAME_WIDTH * FRAME_HEIGHT * BYTES_PER_PIXEL];	// YUV422 format, 202752 bytes
+uint8_t image_buf[352 * 288 * BYTES_PER_PIXEL];	// YUV422 format, 202752 bytes
 
 #define CHUNK_SIZE FRAME_WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
 uint8_t frame_buf1[CHUNK_SIZE];  // YUV422 format
