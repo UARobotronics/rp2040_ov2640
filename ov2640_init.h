@@ -10,6 +10,7 @@ static const uint8_t ov2640_vga[][2] = {
 	{0xff, 0x01},  /* Device control register list Table 13 */
 	{0x3c, 0x32},  /* Reserved                              */
 	{0x11, 0x00},  /* Clock Rate Control
+	// {0x11, 0x04},  /* Clock Rate Control
                       Bit[7]: Internal frequency doublers ON/OFF selection
                         0: OFF
                         1: ON
@@ -60,6 +61,7 @@ static const uint8_t ov2640_vga[][2] = {
 					  100: SVGA mode                        */
 	// {0x12, 0x20},  /* Common control 7, CIF mode            */
 	{0x11, 0x00},  /* Clock Rate Control
+	// {0x11, 0x04},  /* Clock Rate Control
                       Bit[7]: Internal frequency doublers ON/OFF selection
                         +0: OFF
                         1: ON
@@ -240,7 +242,7 @@ static const uint8_t ov2640_vga[][2] = {
 	                  +Bit[2]: UV_AVG
 	                  Bit[1]: Reserved
 	                  +Bit[0]: CMX                          */
-	{0x50, 0x92},  /* +Bit[7]: LP_DP
+	{0x50, 0x89},  /* +Bit[7]: LP_DP
 	                  Bit[6]: Round
 					  Bit[5:3]: V_DIVIDER      (2)
 					  Bit[2:0]: H_DIVIDER      (2)          */
@@ -252,8 +254,8 @@ static const uint8_t ov2640_vga[][2] = {
                       Bit[6:4]: OFFSET_Y[10:8]   (0)
                       Bit[3]: H_SIZE[8] (real/4) (1 -> 1024)
                       Bit[2:0]: OFFSET_X[10:8]   (0)        */
-	{0x5a, 0x50},  /* OUTW[7:0] (real/4)       (80) (320)   */
-	{0x5b, 0x3c},  /* OUTH[7:0] (real/4)       (60) (240)   */
+	{0x5a, 0xa0},  /* OUTW[7:0] (real/4)       (160) (640)   */
+	{0x5b, 0x78},  /* OUTH[7:0] (real/4)       (120) (480)   */
 	{0x5c, 0x00},  /* Bit[7:4]: ZMSPD (zoom speed)
                       Bit[2]: OUTH[8]     (0)
                       Bit[1:0]: OUTW[9:8] (0)               */
@@ -286,7 +288,7 @@ static const uint8_t ov2640_vga[][2] = {
 	                  +Bit[2]: UV_AVG
 	                  Bit[1]: Reserved
 	                  +Bit[0]: CMX                          */
-	{0x50, 0x92},  /* +Bit[7]: LP_DP
+	{0x50, 0x89},  /* +Bit[7]: LP_DP
 	                  Bit[6]: Round
 					  +Bit[5:3]: V_DIVIDER (2)
 					  +Bit[2:0]: H_DIVIDER (2)              */
@@ -299,8 +301,8 @@ static const uint8_t ov2640_vga[][2] = {
                       Bit[3]: H_SIZE[8]          (1 -> 1024)
                       Bit[2:0]: OFFSET_X[10:8]   (0)        */
 	{0x57, 0x00},  /* Bit[7]: H_SIZE[9]        (0 -> 0)     */
-	{0x5a, 0x50},  /* OUTW[7:0] (real/4)       (80) (320)   */
-	{0x5b, 0x3c},  /* OUTH[7:0] (real/4)       (60) (240)   */
+	{0x5a, 0xa0},  /* OUTW[7:0] (real/4)       (160) (640)   */
+	{0x5b, 0x78},  /* OUTH[7:0] (real/4)       (120) (480)   */
 	{0x5c, 0x00},  /* Bit[7:4]: ZMSPD (zoom speed)
                       Bit[2]: OUTH[8]          (0)
                       Bit[1:0]: OUTW[9:8]      (0)          */
@@ -353,7 +355,7 @@ static const uint8_t ov2640_vga[][2] = {
                       Bit[3]: H_SIZE[8] (real/4) (1 -> 1024)
                       Bit[2:0]: OFFSET_X[10:8]   (0)        */
 	{0x57, 0x00},  /* Bit[7]: H_SIZE[9] (real/4) (0)        */
-	{0x5a, 0xA0},  /* OUTW[7:0] (real/4) (160)  (640)       */
+	{0x5a, 0xa0},  /* OUTW[7:0] (real/4) (160)  (640)       */
 	{0x5b, 0x78},  /* OUTH[7:0] (real/4) (120)  (480)       */
 	{0x5c, 0x00},  /* Bit[7:4]: ZMSPD (zoom speed)
                       Bit[2]: OUTH[8]           (0 -> 0)
@@ -367,49 +369,52 @@ static const uint8_t ov2640_vga[][2] = {
 };
 
 static const uint8_t ov2640_uxga_cif[][2] = {   
-	{0xff, 0x00},  /* Device control register list Table 12 */  
-	{0xe0, 0x04},  /* Reset:
-					  +Bit[2]: DVP                          */
-	{0xc0, 0xc8},  /* Image horizontal size [10:3] bits (200 -> 800) */
-	{0xc1, 0x96},  /* Image vertical size [10:3] bits (150 -> 600)   */
-	// {0xc0, 0x64}, /* Image horizontal size [10:3] bits (100 -> 400) */ 
-	// {0xc1, 0x4C}, /* Image vertical size [10:3] bits (75 -> 300)  */  
-	// {0x8c, 0x00}, /* [6] bit - image horizontal size [11] bit
-	//                  [5-3] bits - image horizontal size [2:0] bits (0)
-	// 			        [2-0] bits - image vertical size [2:0] bits (0) */
-	{0x86, 0x35},  /* Module Enable:     
-	                  +Bit[5]: DCW
-	                  +Bit[4]: SDE
-	                  Bit[3]: UV_ADJ
-	                  +Bit[2]: UV_AVG
-	                  Bit[1]: Reserved
-	                  +Bit[0]: CMX                          */   
-	{0x50, 0x92},  /* +Bit[7]: LP_DP
-	                  Bit[6]: Round
-					  Bit[5:3]: V_DIVIDER  (2)
-					  Bit[2:0]: H_DIVIDER  (2)              */
-	{0x51, 0x90}, /* H_SIZE[7:0] (real/4)     (144)  (576)  */
-	{0x52, 0x2c}, /* V_SIZE[7:0] (real/4)     (44)   (176)  */
-	// {0x51, 0x20}, // H size [7:0] bits     (32) 
-	// {0x52, 0x20}, // V size [7:0] bits     (32)
-	{0x53, 0x00},  /* OFFSET_X[7:0]       (0)               */
-	{0x54, 0x00},  /* OFFSET_Y[7:0]       (0)               */
-	{0x55, 0x88},  /* Bit[7]: V_SIZE[8] (real/4) (1 -> 1024)
-                      Bit[6:4]: OFFSET_Y[10:8]   (0)
-                      Bit[3]: H_SIZE[8] (real/4) (1 -> 1024)
-                      Bit[2:0]: OFFSET_X[10:8]   (0)        */
-	{0x57, 0x00},  /* Bit[7]: H_SIZE[9] (0 -> 0)            */
-	{0x5a, 0x58},  /* OUTW[7:0] (real/4)  (88) (352)        */
-	{0x5b, 0x48},  /* OUTH[7:0] (real/4)  (72) (288)        */
-	{0x5c, 0x00},  /* Bit[7:4]: ZMSPD (zoom speed)
-                      Bit[2]: OUTH[8]      (0 -> 0)
-                      Bit[1:0]: OUTW[9:8]  (0 -> 0)         */
-	{0xd3, 0x08},  /* DVP output speed control:
-	                  Bit[7]: Auto mode
-					  Bit[6:0]: DVP output speed control (8)    
-					      DVP PCLK = sysclk (48)/[6:0] (YUV0) 
-						           = sysclk (48)/2*[6:0]) (RAW) */
-	{0xe0, 0x00}   /* Reset, none bits                      */
+	// {0xff, 0x00},  /* Device control register list Table 12 */  
+	// {0xe0, 0x04},  /* Reset:
+	// 				  +Bit[2]: DVP                          */
+	// {0xc0, 0xc8},  /* Image horizontal size [10:3] bits (200 -> 800) */
+	// {0xc1, 0x96},  /* Image vertical size [10:3] bits (150 -> 600)   */
+	// // {0xc0, 0x64}, /* Image horizontal size [10:3] bits (100 -> 400) */ 
+	// // {0xc1, 0x4C}, /* Image vertical size [10:3] bits (75 -> 300)  */  
+	// // {0x8c, 0x00}, /* [6] bit - image horizontal size [11] bit
+	// //                  [5-3] bits - image horizontal size [2:0] bits (0)
+	// // 			        [2-0] bits - image vertical size [2:0] bits (0) */
+	// {0x86, 0x35},  /* Module Enable:     
+	//                   +Bit[5]: DCW
+	//                   +Bit[4]: SDE
+	//                   Bit[3]: UV_ADJ
+	//                   +Bit[2]: UV_AVG
+	//                   Bit[1]: Reserved
+	//                   +Bit[0]: CMX                          */   
+	// // {0x50, 0x92},  /* +Bit[7]: LP_DP
+	// {0x50, 0x80},  /* +Bit[7]: LP_DP
+	//                   Bit[6]: Round
+	// 				  Bit[5:3]: V_DIVIDER  (2)
+	// 				  Bit[2:0]: H_DIVIDER  (2)              */
+	// {0x51, 0x90}, /* H_SIZE[7:0] (real/4)     (144)  (576)  */
+	// {0x52, 0x2c}, /* V_SIZE[7:0] (real/4)     (44)   (176)  */
+	// // {0x51, 0x20}, // H size [7:0] bits     (32) 
+	// // {0x52, 0x20}, // V size [7:0] bits     (32)
+	// {0x53, 0x00},  /* OFFSET_X[7:0]       (0)               */
+	// {0x54, 0x00},  /* OFFSET_Y[7:0]       (0)               */
+	// {0x55, 0x88},  /* Bit[7]: V_SIZE[8] (real/4) (1 -> 1024)
+    //                   Bit[6:4]: OFFSET_Y[10:8]   (0)
+    //                   Bit[3]: H_SIZE[8] (real/4) (1 -> 1024)
+    //                   Bit[2:0]: OFFSET_X[10:8]   (0)        */
+	// {0x57, 0x00},  /* Bit[7]: H_SIZE[9] (0 -> 0)            */
+	// // {0x5a, 0x58},  /* OUTW[7:0] (real/4)  (88) (352)        */
+	// // {0x5b, 0x48},  /* OUTH[7:0] (real/4)  (72) (288)        */
+	// {0x5a, 0xA0},  /* OUTW[7:0] (real/4)  (88) (352)  (512)      */
+	// {0x5b, 0x78},  /* OUTH[7:0] (real/4)  (72) (288)  (384)      */
+	// {0x5c, 0x00},  /* Bit[7:4]: ZMSPD (zoom speed)
+    //                   Bit[2]: OUTH[8]      (0 -> 0)
+    //                   Bit[1:0]: OUTW[9:8]  (0 -> 0)         */
+	// {0xd3, 0x08},  /* DVP output speed control:
+	//                   Bit[7]: Auto mode
+	// 				  Bit[6:0]: DVP output speed control (8)    
+	// 				      DVP PCLK = sysclk (48)/[6:0] (YUV0) 
+	// 					           = sysclk (48)/2*[6:0]) (RAW) */
+	// {0xe0, 0x00}   /* Reset, none bits                      */
 };   
 
 #endif

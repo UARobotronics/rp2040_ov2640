@@ -50,8 +50,12 @@ const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
 const uint8_t CMD_CAPTURE = 0xCC;
 
-#define FRAME_WIDTH 352
-#define FRAME_HEIGHT 288
+// #define FRAME_WIDTH 352
+// #define FRAME_HEIGHT 288
+#define FRAME_WIDTH 640
+#define FRAME_HEIGHT 480
+// #define FRAME_WIDTH 512
+// #define FRAME_HEIGHT 384
 #define BYTES_PER_PIXEL 2
 
 const int PACKET_HEADER_SIZE = 4;
@@ -142,8 +146,8 @@ int main() {
 	uart_set_baudrate(uart0, 460800);
 
 	// Wait until USB is ready for serial output
-	while (!tud_cdc_connected())
-		sleep_ms(10);
+	// while (!tud_cdc_connected())
+	// 	sleep_ms(10);
 
 	printf("\n\nBooted!\n");
 
@@ -267,7 +271,7 @@ int main() {
 			else
 			{
 				printf("FPS: %u\n", received_chunks / FRAME_HEIGHT);
-				printf("Obtained chunks: %u\n", received_chunks);
+				printf("Obtained rows: %u\n", received_chunks);
 				printf("Missed rows: %u\n", missed_rows);
 			}
 
