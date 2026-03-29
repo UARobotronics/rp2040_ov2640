@@ -52,8 +52,8 @@ const uint8_t CMD_CAPTURE = 0xCC;
 
 // #define FRAME_WIDTH 352
 // #define FRAME_HEIGHT 288
-#define FRAME_WIDTH 640
-#define FRAME_HEIGHT 480
+#define FRAME_WIDTH 800
+#define FRAME_HEIGHT 600
 // #define FRAME_WIDTH 512
 // #define FRAME_HEIGHT 384
 #define BYTES_PER_PIXEL 2

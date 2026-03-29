@@ -1,10 +1,12 @@
 #include <stdio.h>
 
 #include "ov2640.h"
-#include "ov2640_init.h"
+// #include "ov2640_init.h"
+#include "ov2640_svga_init.h"
 // #include "ov2640_480x272_init.h"
 // #include "ov2640_640x480_init.h"
 // #include "ov2640_picampinos_init.h"
+// #include "example_svga_init.h"
 
 #include "hardware/dma.h"
 #include "hardware/i2c.h"

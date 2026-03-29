@@ -18,7 +18,7 @@ static const uint8_t ov2640_vga[][2] = {
                       Bit[5:0]: Clock divider               */
 	{0x09, 0x02},  /* Common control 2 | Output drive select - 2x capability */
 	// {0x10, 0x01},  /* Automatic exposure control [2:9] bits */
-	{0x04, 0xA8},  /* Mirror                                */
+	{0x04, 0x28},  /* Mirror                                */
 	{0x13, 0xe5},  /* Common control 8                      
 	                  +Bit[5]: Banding filter selection - ON, set minimum exposure time to 1/120 s
 	                  +Bit[2]: AGC auto/manual control selection - 1 (auto)
@@ -244,8 +244,8 @@ static const uint8_t ov2640_vga[][2] = {
 	                  +Bit[0]: CMX                          */
 	{0x50, 0x89},  /* +Bit[7]: LP_DP
 	                  Bit[6]: Round
-					  Bit[5:3]: V_DIVIDER      (2)
-					  Bit[2:0]: H_DIVIDER      (2)          */
+					  Bit[5:3]: V_DIVIDER      (1)
+					  Bit[2:0]: H_DIVIDER      (1)          */
 	{0x51, 0x90},  /* H_SIZE[7:0] (real/4)     (144) (576)  */
 	{0x52, 0x2c},  /* V_SIZE[7:0] (real/4)     (44)  (176)  */
 	{0x53, 0x00},  /* OFFSET_X[7:0] (0)                     */
@@ -290,8 +290,8 @@ static const uint8_t ov2640_vga[][2] = {
 	                  +Bit[0]: CMX                          */
 	{0x50, 0x89},  /* +Bit[7]: LP_DP
 	                  Bit[6]: Round
-					  +Bit[5:3]: V_DIVIDER (2)
-					  +Bit[2:0]: H_DIVIDER (2)              */
+					  +Bit[5:3]: V_DIVIDER (1)
+					  +Bit[2:0]: H_DIVIDER (1)              */
 	{0x51, 0x90},  /* H_SIZE[7:0] (real/4) (144)  (576)     */
 	{0x52, 0x2c},  /* V_SIZE[7:0] (real/4) (44)   (176)     */
 	{0x53, 0x00},  /* OFFSET_X[7:0]        (0)              */
