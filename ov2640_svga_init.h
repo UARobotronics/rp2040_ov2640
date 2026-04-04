@@ -9,7 +9,7 @@ static const uint8_t ov2640_vga[][2] = {
 
 	{0xff, 0x01},  /* Device control register list Table 13 */
 	{0x3c, 0x32},  /* Reserved                              */
-	{0x11, 0x00},  /* Clock Rate Control
+	{0x11, 0x01},  /* Clock Rate Control
                       Bit[7]: Internal frequency doublers ON/OFF selection
                         0: OFF
                         1: ON
