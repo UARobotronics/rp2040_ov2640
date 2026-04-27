@@ -1,13 +1,10 @@
 #include <stdio.h>
 
 #include "ov2640.h"
-// #include "ov2640_init.h"
-#include "ov2640_svga_init.h"
-// #include "ov2640_480x272_init.h"
-// #include "ov2640_640x480_init.h"
-// #include "ov2640_picampinos_init.h"
-// #include "example_svga_init.h"
-// #include "manufacturer_uxga_init.h"
+// #include "ov2640_init.h" // UXGA, 640 x 480, bad quality
+#include "ov2640_svga_init.h" // SVGA, 800 x 600, bad quality
+// #include "ov2640_picampinos_init.h" // UXGA, 640 x 480, better quality
+// #include "manufacturer_uxga_init.h" // UXGA, 1600 x 1200, bad quality
 
 #include "hardware/dma.h"
 #include "hardware/i2c.h"
