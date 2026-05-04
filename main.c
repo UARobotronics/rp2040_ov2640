@@ -50,19 +50,18 @@ const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
 const uint8_t CMD_CAPTURE = 0xCC;
 
-// #define FRAME_WIDTH 352
-// #define FRAME_HEIGHT 288
-#define FRAME_WIDTH 800
-#define FRAME_HEIGHT 600
-// #define FRAME_WIDTH 512
-// #define FRAME_HEIGHT 384
+// SVGA
+// #define FRAME_WIDTH 800
+// #define FRAME_HEIGHT 600
+// UXGA
+#define FRAME_WIDTH 1600
+#define FRAME_HEIGHT 1200
+#define SEND_FRAME_HEIGHT 70
 #define BYTES_PER_PIXEL 2
 
 const int PACKET_HEADER_SIZE = 4;
 
-// uint8_t image_buf[WIDTH * HEIGHT * BYTES_PER_PIXEL]; // RGB565 format
-// uint8_t image_buf[FRAME_WIDTH * FRAME_HEIGHT * BYTES_PER_PIXEL];	// YUV422 format, 202752 bytes
-uint8_t image_buf[352 * 288 * BYTES_PER_PIXEL];	// YUV422 format, 202752 bytes
+uint8_t image_buf[FRAME_WIDTH * SEND_FRAME_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
 
 #define CHUNK_SIZE FRAME_WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
 uint8_t frame_buf1[CHUNK_SIZE];  // YUV422 format
@@ -106,7 +105,7 @@ void core1_main()
 	}
 }
 
-uint16_t process_yuv_raw_data(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* out_buf)
+uint16_t prepare_yuv_packet(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* out_buf)
 {
 	uint16_t out_len = 0;
 	
@@ -199,58 +198,87 @@ int main() {
 	uint16_t prev_row = current_row;
 	received_chunks = 0;
 
+	memset(image_buf, 0, sizeof(image_buf));
+
+	bool do_process = true;
+	absolute_time_t new_frame_time = 0;
+
 	while (true)
 	{
 		gpio_put(PIN_LED, !gpio_get(PIN_LED));
 
 		if (full_frame_capturing)
 		{
-			while (gpio_get(config.pin_vsync) == true);
-			while (gpio_get(config.pin_vsync) == false);
+			if (do_process)
+			{
+				if (time_reached(new_frame_time))
+				{
+					// Wait for start of the new frame
+					while (gpio_get(config.pin_vsync) == true);
+					while (gpio_get(config.pin_vsync) == false);
 
-			send_data(config.image_buf, config.image_buf_size);
-			++frame_count;
+					size_t buf_start = 0;
+					uint8_t div = 2;
+					uint32_t row_len = FRAME_WIDTH * BYTES_PER_PIXEL / div; 
+					current_row = 0;
+					while (buf_start < config.image_buf_size)
+					{
+						uint16_t len = prepare_yuv_packet(config.image_buf + buf_start, row_len, process_buf1);
+						send_data(process_buf1, len);
+						sleep_ms(100);
+						buf_start += row_len * div;
+						++current_row;
+					}
+
+					++frame_count;
+					new_frame_time = make_timeout_time_ms(2000);
+					// do_process = false;
+				}
+			}
 		}
 		else
 		{
 			if (frame_ready_buf)
 			{
-				uint8_t* process_buf = NULL;
-				if (frame_ready_buf == frame_buf1)
-					process_buf = process_buf1;
-				else if (frame_ready_buf == frame_buf2)
-					process_buf = process_buf2;
-
-				if (process_buf)
+				if (do_process)
 				{
-					switch (pixel_format)
+					uint8_t* process_buf = NULL;
+					if (frame_ready_buf == frame_buf1)
+						process_buf = process_buf1;
+					else if (frame_ready_buf == frame_buf2)
+						process_buf = process_buf2;
+
+					if (process_buf)
 					{
-						case PIXEL_FORMAT_YUV:
-							uint64_t start = time_us_64();
-							uint16_t len = process_yuv_raw_data(frame_ready_buf, CHUNK_SIZE, process_buf);
-							transfer_data.pixel_data_size = len;
-							transfer_data.pixel_data = process_buf;
-							transfer_data.ready = true;
-							uint64_t end = time_us_64();
+						switch (pixel_format)
+						{
+							case PIXEL_FORMAT_YUV:
+								uint64_t start = time_us_64();
+								uint16_t len = prepare_yuv_packet(frame_ready_buf, CHUNK_SIZE / 10, process_buf);
+								transfer_data.pixel_data_size = len;
+								transfer_data.pixel_data = process_buf;
+								transfer_data.ready = true;
+								uint64_t end = time_us_64();
 
-							// printf("Processed row data in %llu micros\n", end - start);
-							// printf("Processed buffer length for %u row: %u\n", current_row, len);
-							// printf("Received %u row data\n", current_row);
+								// printf("Processed row data in %llu micros\n", end - start);
+								// printf("Processed buffer length for %u row: %u\n", current_row, len);
+								// printf("Received %u row data\n", current_row);
 
-							if (current_row - prev_row > 1)
-								++missed_rows;
+								if (current_row - prev_row > 1)
+									++missed_rows;
 
-							prev_row = current_row;
+								prev_row = current_row;
 
-							break;
-						case PIXEL_FORMAT_RGB:
-						default:
-							break;
+								break;
+							case PIXEL_FORMAT_RGB:
+							default:
+								break;
+						}
 					}
-				}
 
-				frame_ready_buf = NULL;
-				current_row = (current_row + 1) % FRAME_HEIGHT;
+					frame_ready_buf = NULL;
+					current_row = (current_row + 1) % FRAME_HEIGHT;
+				}
 			}
 			else
 			if (gpio_get(config.pin_vsync) == false)

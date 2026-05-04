@@ -2,6 +2,11 @@
 #define OV2640_INIT_H
 #include <stdint.h>
 
+/*
+Initialization code taken from:
+Omnivision application notes for OV2640 camera
+*/
+
 static const uint8_t ov2640_vga[][2] = {
 	{0xff, 0x00},  /* Device control register list Table 12 */
 	{0x2c, 0xff},  /* Reserved                              */
@@ -30,7 +35,8 @@ static const uint8_t ov2640_vga[][2] = {
 	{0x3e, 0x00},  /* Reserved                              */
 	{0x43, 0x11},  /* Reserved                              */
 	{0x16, 0x10},  /* Reserved                              */
-	{0x39, 0x92},  /* Reserved                              */
+	{0x39, 0x02},  /* Reserved, modified compared to original
+	                  code to avoid horizontal black stripes*/
 	{0x35, 0xda},  /* Reserved                              */
 	{0x22, 0x1a},  /* Reserved                              */
 	{0x37, 0xc3},  /* Reserved                              */

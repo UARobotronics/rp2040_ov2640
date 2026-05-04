@@ -41,7 +41,7 @@ static struct CONFIG_s _config = {
 
 static struct IPv4_ADDRESS_s dst_address = {.a = 192, .b = 168, .c = 50, .d = 12};
 static uint16_t dst_port = 8080;
-static uint16_t max_packet_size = 1200;
+static uint16_t max_packet_size = 1700;
 // static uint16_t max_packet_size = 704;
 
 static SOCKET socket = {0};

@@ -2,6 +2,11 @@
 #define OV2640_PICAMPINOS_INIT_H
 #include <stdint.h>
 
+/*
+Initialization code taken from:
+https://github.com/panda5mt/picampinos/blob/main/firmware/sccb_if.c
+*/
+
 static const uint8_t ov2640_vga[][2] = {
 	{0xff, 0x00},
 	{0x2c, 0xff},
