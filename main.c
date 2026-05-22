@@ -117,7 +117,7 @@ void core1_main()
 	}
 }
 
-uint16_t prepare_yuv_packet(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* out_buf)
+uint16_t prepare_yuv_packet(const uint8_t* in_buf, uint16_t in_len, uint8_t* out_buf)
 {
 	uint16_t out_len = 0;
 	
@@ -129,8 +129,6 @@ uint16_t prepare_yuv_packet(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* 
 	// 11 bits for row number
 	out_buf[1] |= (current_row >> 8) & 0x7;
 	out_buf[2] = current_row & 0xFF;
-	// 6 bits for flags
-	out_buf[3] = (pixel_encoding_flags << 2) & 0xFF;
 	// 2 bits for pixel format
 	// 0 - 5 bits of color data
 	// 1 - 6 bits of color data
@@ -140,14 +138,39 @@ uint16_t prepare_yuv_packet(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* 
 
 	out_len = 4;
 
-	for (int i = 1; i < in_len; i += 2) {
-		out_buf[out_len] = in_buf[i];
-		// out_buf[out_len] = in_buf[i] & 0xFC;
-		++out_len;
+	// Simple processing
+	// for (int i = 0; i < in_len; i += 1) {
+	// 	out_buf[out_len] = in_buf[i];
+	// 	// out_buf[out_len] = in_buf[i] & 0xFC;
+	// 	++out_len;
+	// }
+
+	// Advanced processing
+	uint32_t val = in_buf[0];
+	uint32_t count = 0;
+	uint8_t tmp;
+	for (int i = 0; i < in_len; i += 1) {
+		tmp = in_buf[i];
+		// Count is compared against 3 because in video protocol
+		// 6 bits of byte are used for color coding and remaining 2 bits
+		// are used for pixel count for which this color is applied.
+		// 2 bits give 3 possible values.
+		// If color depth is changed, this counter must change as well.
+		if ((count < 3) && (tmp == val))
+		{
+			++count;
+		}
+		else
+		{
+			out_buf[out_len] = val + count;
+			++out_len;
+			val = tmp;
+			count = 0;
+		}
 	}
 
-	// out_len = in_len / 2;
-	// memcpy(out_buf, in_buf, out_len);
+	// memcpy(&out_buf[4], in_buf, in_len);
+	// out_len += in_len;
 
 	return out_len;
 }
