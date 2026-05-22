@@ -27,6 +27,8 @@ void ov2640_init(struct ov2640_config *config) {
 	// SCCB I2C @ 100 kHz
 	gpio_set_function(config->pin_sioc, GPIO_FUNC_I2C);
 	gpio_set_function(config->pin_siod, GPIO_FUNC_I2C);
+	gpio_pull_up(config->pin_sioc);
+	gpio_pull_up(config->pin_siod);
 	i2c_init(config->sccb, 100 * 1000);
 
 	// Initialise reset pin
