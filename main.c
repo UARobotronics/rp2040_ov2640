@@ -39,25 +39,34 @@ typedef struct
 
 const int PIN_LED = 25;
 
-const int PIN_CAM_SIOC = 21; // I2C0 SCL
-const int PIN_CAM_SIOD = 20; // I2C0 SDA
-const int PIN_CAM_RESETB = 2;
-const int PIN_CAM_XCLK = 3;
-const int PIN_CAM_VSYNC = 14;
-const int PIN_CAM_Y2_PIO_BASE = 4;
+// const int PIN_CAM_SIOC = 21; // I2C0 SCL
+// const int PIN_CAM_SIOD = 20; // I2C0 SDA
+// const int PIN_CAM_RESETB = 2;
+// const int PIN_CAM_XCLK = 3;
+// const int PIN_CAM_VSYNC = 14;
+// const int PIN_CAM_Y2_PIO_BASE = 4;
+// #define I2C i2c0
+
+const int PIN_CAM_SIOC = 27; // I2C0 SCL
+const int PIN_CAM_SIOD = 26; // I2C0 SDA
+const int PIN_CAM_RESETB = 22;
+const int PIN_CAM_XCLK = 0;
+const int PIN_CAM_VSYNC = 15;
+const int PIN_CAM_Y2_PIO_BASE = 5;
+#define I2C i2c1
 
 const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
 const uint8_t CMD_CAPTURE = 0xCC;
 
 // SVGA
-// #define FRAME_WIDTH 800
-// #define FRAME_HEIGHT 600
+#define FRAME_WIDTH 800
+#define FRAME_HEIGHT 600
 // UXGA
-#define FRAME_WIDTH 1600
-#define FRAME_HEIGHT 1200
+// #define FRAME_WIDTH 1600
+// #define FRAME_HEIGHT 1200
 #define SEND_FRAME_HEIGHT 70
-#define BYTES_PER_PIXEL 2
+#define BYTES_PER_PIXEL 1
 
 const int PACKET_HEADER_SIZE = 4;
 
@@ -154,7 +163,7 @@ int main() {
 	gpio_set_dir(PIN_LED, GPIO_OUT);
 
 	struct ov2640_config config;
-	config.sccb = i2c0;
+	config.sccb = I2C;
 	config.pin_sioc = PIN_CAM_SIOC;
 	config.pin_siod = PIN_CAM_SIOD;
 

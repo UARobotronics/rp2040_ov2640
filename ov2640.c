@@ -3,8 +3,8 @@
 #include "ov2640.h"
 // #include "ov2640_init.h" // UXGA, 640 x 480, bad quality
 // #include "ov2640_init_no_comments.h" // UXGA, 800 x 600, bad quality
-// #include "ov2640_svga_init.h" // SVGA, 800 x 600, bad quality
-#include "ov2640_uxga_init.h" // UXGA, 1600 x 1200, bad quality
+#include "ov2640_svga_init.h" // SVGA, 800 x 600, bad quality
+// #include "ov2640_uxga_init.h" // UXGA, 1600 x 1200, bad quality
 // #include "ov2640_picampinos_init.h" // UXGA, 640 x 480, better quality
 
 #include "hardware/dma.h"

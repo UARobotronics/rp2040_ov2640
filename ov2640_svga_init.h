@@ -28,6 +28,11 @@ static const uint8_t ov2640_vga[][2] = {
 	                  +Bit[2]: AGC auto/manual control selection - 1 (auto)
 	                  +Bit[0]: Exposure control - 1 (auto) */
 	{0x14, 0x48},  /* Common control 9 | AGC gain ceiling - 8x */
+	{0x2a, 0x00},  /* Bit[7:4]: Line interval adjust value 4 MSBs
+	                  (LSBs in FRARL[7:0] (0x2B))           
+	                  The frame rate will be adjusted by changing the line interval. Each LSB
+                      will add 1/1922 Tframe in UXGA and 1/1190 Tframe in SVGA mode to te
+                      frame period.                         */
 	{0x2c, 0x0c},  /* Reserved                              */
 	{0x33, 0x78},  /* Reserved                              */
 	{0x3a, 0x33},  /* Reserved                              */
