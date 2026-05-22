@@ -199,20 +199,24 @@ int main() {
 	config.frame_buf_size = sizeof(frame_buf1);
 	config.frame_buf2 = frame_buf2;
 
-	ov2640_init(&config);
-	printf("Camera initialized\n");
-
 	if (transfer_type == TRANSFER_ETHERNET)
 	{
 		bool success = ethernet_init();
 		if (!success)
 		{
-			printf("Ethernet init failed!\n");
+			// printf("Ethernet init failed!\n");
 
 			return 1;
 		}
 	}
 	
+	sleep_ms(1000);
+	
+	ov2640_init(&config);
+	printf("Camera initialized\n");
+
+	// test_ethernet_transfer();
+
 	multicore_launch_core1(core1_main);
 
 	ov2640_init_capture(&config, full_frame_capturing);
