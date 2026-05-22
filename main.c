@@ -98,6 +98,8 @@ uint8_t pixel_encoding_flags = 0;
 uint8_t pixel_encoding_format = 0;
 bool full_frame_capturing = false;
 
+volatile uint64_t total_send_micros = 0;
+
 void core1_main()
 {
 	while (true)
@@ -109,6 +111,7 @@ void core1_main()
 			send_data(transfer_data.pixel_data, transfer_data.pixel_data_size);
 			uint64_t end = time_us_64();
 			// printf("Sent row data in %llu micros\n", end - start);
+			total_send_micros += end - start;
 			++received_chunks;
 		}
 	}
@@ -147,6 +150,20 @@ uint16_t prepare_yuv_packet(volatile uint8_t* in_buf, uint16_t in_len, uint8_t* 
 	// memcpy(out_buf, in_buf, out_len);
 
 	return out_len;
+}
+
+void test_ethernet_transfer()
+{
+	uint64_t start = time_us_64();
+	uint64_t bytes_sent = 0;
+	uint32_t buf_len = 1000;
+	uint8_t buffer[buf_len];
+	while (time_us_64() - start < 1 * 1000 * 1000)
+	{
+		send_data(buffer, buf_len);
+		bytes_sent += buf_len;
+	}
+	printf("Sent %llu bytes of data\n", bytes_sent);
 }
 
 int main() {
@@ -206,11 +223,16 @@ int main() {
 	uint16_t missed_rows = 0;
 	uint16_t prev_row = current_row;
 	received_chunks = 0;
+	uint64_t row_time = 0;
+	uint64_t prev_row_time = 0;
 
 	memset(image_buf, 0, sizeof(image_buf));
 
 	bool do_process = true;
 	absolute_time_t new_frame_time = 0;
+	uint64_t total_receive_micros = 0;
+	uint64_t total_process_micros = 0;
+	uint64_t row_count = 0;
 
 	while (true)
 	{
@@ -259,15 +281,25 @@ int main() {
 
 					if (process_buf)
 					{
+						row_time = time_us_64();
+						if (prev_row_time > 0)
+						{
+							//printf("Micros passed since prev row data: %llu\n", row_time - prev_row_time);
+							total_receive_micros += row_time - prev_row_time;
+							row_count++;
+						}
+						prev_row_time = row_time;
+
 						switch (pixel_format)
 						{
 							case PIXEL_FORMAT_YUV:
 								uint64_t start = time_us_64();
-								uint16_t len = prepare_yuv_packet(frame_ready_buf, CHUNK_SIZE / 10, process_buf);
+								uint16_t len = prepare_yuv_packet(frame_ready_buf, CHUNK_SIZE, process_buf);
 								transfer_data.pixel_data_size = len;
 								transfer_data.pixel_data = process_buf;
 								transfer_data.ready = true;
 								uint64_t end = time_us_64();
+								total_process_micros += end - start;
 
 								// printf("Processed row data in %llu micros\n", end - start);
 								// printf("Processed buffer length for %u row: %u\n", current_row, len);
@@ -307,9 +339,22 @@ int main() {
 			}
 			else
 			{
+				uint64_t receive_micros = total_receive_micros / row_count;
+				uint64_t process_micros = total_process_micros / row_count;
+				uint64_t send_micros = total_send_micros / received_chunks;
+
 				printf("FPS: %u\n", received_chunks / FRAME_HEIGHT);
 				printf("Obtained rows: %u\n", received_chunks);
 				printf("Missed rows: %u\n", missed_rows);
+				printf("Retrieved single row data in %llu micros\n", receive_micros);
+				printf("Processed single row data in %llu micros\n", process_micros);
+				printf("Sent single row data in %llu micros\n", send_micros);
+
+				total_receive_micros = 0;
+				total_process_micros = 0;
+				total_send_micros = 0;
+
+				row_count = 0;
 			}
 
 			start_time = time_us_64();
