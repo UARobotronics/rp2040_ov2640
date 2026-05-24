@@ -11,6 +11,7 @@
 #include "network/drivers/w5500.h"
 #include "network/network.h"
 
+#include "common.h"
 #include "ethernet.h"
 #include "ov2640.h"
 #include "transfer.h"
@@ -59,25 +60,14 @@ const uint8_t CMD_REG_WRITE = 0xAA;
 const uint8_t CMD_REG_READ = 0xBB;
 const uint8_t CMD_CAPTURE = 0xCC;
 
-// SVGA
-#define FRAME_WIDTH 800
-#define FRAME_HEIGHT 600
-// UXGA
-// #define FRAME_WIDTH 1600
-// #define FRAME_HEIGHT 1200
-#define SEND_FRAME_HEIGHT 70
-#define BYTES_PER_PIXEL 1
-
 const int PACKET_HEADER_SIZE = 4;
 
 uint8_t image_buf[FRAME_WIDTH * SEND_FRAME_HEIGHT * BYTES_PER_PIXEL]; // YUV422 format
 
-#define CHUNK_SIZE FRAME_WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
-uint8_t frame_buf1[CHUNK_SIZE];  // YUV422 format
-uint8_t frame_buf2[CHUNK_SIZE];  // YUV422 format
+volatile uint8_t active_buffer = 0;
+uint8_t frame_buffers[BUFFERS_COUNT][CHUNK_SIZE];
+uint8_t process_buffers[BUFFERS_COUNT][CHUNK_SIZE];
 uint8_t* frame_ready_buf = NULL;
-uint8_t process_buf1[CHUNK_SIZE];
-uint8_t process_buf2[CHUNK_SIZE];
 
 // uint8_t* transfer_buf = NULL;
 transfer_data_t transfer_data = {
@@ -89,7 +79,7 @@ transfer_data_t transfer_data = {
 extern volatile uint16_t chunk_count;
 
 volatile uint16_t received_chunks = 0;
-uint16_t current_row = 0;
+volatile uint16_t current_row = 0;
 uint16_t current_frame = 0;
 
 enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
@@ -156,7 +146,7 @@ uint16_t prepare_yuv_packet(const uint8_t* in_buf, uint16_t in_len, uint8_t* out
 		// are used for pixel count for which this color is applied.
 		// 2 bits give 3 possible values.
 		// If color depth is changed, this counter must change as well.
-		if ((count < 3) && (tmp == val))
+		if ((count < 7) && (tmp == val))
 		{
 			++count;
 		}
@@ -218,9 +208,7 @@ int main() {
 	config.dma_channel = 0;
 	config.image_buf = image_buf;
 	config.image_buf_size = sizeof(image_buf);
-	config.frame_buf1 = frame_buf1;
-	config.frame_buf_size = sizeof(frame_buf1);
-	config.frame_buf2 = frame_buf2;
+	config.frame_buf_size = sizeof(frame_buffers[0]);
 
 	if (transfer_type == TRANSFER_ETHERNET)
 	{
@@ -259,6 +247,7 @@ int main() {
 	absolute_time_t new_frame_time = 0;
 	uint64_t total_receive_micros = 0;
 	uint64_t total_process_micros = 0;
+	uint64_t total_send_len = 0;
 	uint64_t row_count = 0;
 
 	while (true)
@@ -281,8 +270,8 @@ int main() {
 					current_row = 0;
 					while (buf_start < config.image_buf_size)
 					{
-						uint16_t len = prepare_yuv_packet(config.image_buf + buf_start, row_len, process_buf1);
-						send_data(process_buf1, len);
+						uint16_t len = prepare_yuv_packet(config.image_buf + buf_start, row_len, process_buffers[0]);
+						send_data(process_buffers[0], len);
 						sleep_ms(100);
 						buf_start += row_len * div;
 						++current_row;
@@ -300,11 +289,15 @@ int main() {
 			{
 				if (do_process)
 				{
+					if (current_row == 1)
+						++current_frame;
+
 					uint8_t* process_buf = NULL;
-					if (frame_ready_buf == frame_buf1)
-						process_buf = process_buf1;
-					else if (frame_ready_buf == frame_buf2)
-						process_buf = process_buf2;
+					// if ((current_frame + current_row) % 2 == 0)
+					{
+						uint8_t ind = (uint8_t)(active_buffer - 1) % BUFFERS_COUNT;
+						process_buf = process_buffers[ind];
+					}
 
 					if (process_buf)
 					{
@@ -326,6 +319,7 @@ int main() {
 								transfer_data.pixel_data = process_buf;
 								transfer_data.ready = true;
 								uint64_t end = time_us_64();
+								total_send_len += len;
 								total_process_micros += end - start;
 
 								// printf("Processed row data in %llu micros\n", end - start);
@@ -345,7 +339,6 @@ int main() {
 					}
 
 					frame_ready_buf = NULL;
-					current_row = (current_row + 1) % FRAME_HEIGHT;
 				}
 			}
 			else
@@ -354,8 +347,6 @@ int main() {
 				// Period between frames data. No image data is coming now.
 				current_row = 0;
 			}
-
-			++current_frame;
 		}
 
 		if (time_us_64() - start_time > 1 * 1000 * 1000)
@@ -368,6 +359,7 @@ int main() {
 			{
 				uint64_t receive_micros = total_receive_micros / row_count;
 				uint64_t process_micros = total_process_micros / row_count;
+				uint64_t send_len = total_send_len / row_count;
 				uint64_t send_micros = total_send_micros / received_chunks;
 
 				printf("FPS: %u\n", received_chunks / FRAME_HEIGHT);
@@ -376,10 +368,12 @@ int main() {
 				printf("Retrieved single row data in %llu micros\n", receive_micros);
 				printf("Processed single row data in %llu micros\n", process_micros);
 				printf("Sent single row data in %llu micros\n", send_micros);
+				printf("Average udp packet length is %llu bytes\n", send_len);
 
 				total_receive_micros = 0;
 				total_process_micros = 0;
 				total_send_micros = 0;
+				total_send_len = 0;
 
 				row_count = 0;
 			}

@@ -11,6 +11,8 @@
 #include "hardware/i2c.h"
 #include "hardware/pwm.h"
 #include "image.pio.h"
+
+#include "common.h"
 #include "transfer.h"
 
 static const uint8_t OV2640_ADDR = 0x60 >> 1;
@@ -61,26 +63,24 @@ extern uint8_t frame_buf2[];
 extern uint8_t* transfer_buf;
 extern uint8_t* frame_ready_buf;
 
-volatile uint16_t chunk_count = 0;
+extern volatile uint16_t current_row;
+extern volatile uint8_t active_buffer;
+extern uint8_t frame_buffers[BUFFERS_COUNT][CHUNK_SIZE];
 
 void frame_buffer_handler()
 {
 	// Clear interrupt register
 	dma_hw->ints0 = dma_hw->ints0;
 
-	if (chunk_count % 2 == 0) {
-		frame_ready_buf = frame_buf1;
-		dma_channel_set_write_addr(dma_channel, frame_buf2, true);
-	} else {
-		frame_ready_buf = frame_buf2;
-		dma_channel_set_write_addr(dma_channel, frame_buf1, true);
-	}
+	frame_ready_buf = frame_buffers[active_buffer];
+	active_buffer = (active_buffer + 1) % BUFFERS_COUNT;
+	dma_channel_set_write_addr(dma_channel, frame_buffers[active_buffer], true);
 
-	++chunk_count;
+	++current_row;
 }
 
 void ov2640_init_capture(struct ov2640_config *config, bool full_frame) {
-	chunk_count = 0;
+	current_row = 0;
 
 	irq_set_enabled(DMA_IRQ_0, false);
 
@@ -106,7 +106,7 @@ void ov2640_init_capture(struct ov2640_config *config, bool full_frame) {
 	{
 		dma_channel_configure(
 			config->dma_channel, &c,
-			config->frame_buf1,
+			config->frame_buf,
 			&config->pio->rxf[config->pio_sm],
 			config->frame_buf_size,
 			false

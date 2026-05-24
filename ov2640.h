@@ -22,8 +22,7 @@ struct ov2640_config {
 	uint dma_channel;
 	uint8_t *image_buf;
 	size_t image_buf_size;
-	uint8_t *frame_buf1;
-	uint8_t *frame_buf2;
+	uint8_t *frame_buf;
 	size_t frame_buf_size;
 };
 

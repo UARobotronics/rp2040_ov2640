@@ -1,12 +1,12 @@
 .program image
 .wrap_target
-	wait 1 pin 7 // wait for hsync
-	wait 1 pin 6 // wait for rising pclk
-	in pins 6
-	wait 0 pin 6
-	wait 1 pin 6 // wait for rising pclk
-	in null 2
-	wait 0 pin 6
+	wait 1 pin 6 // wait for hsync
+	wait 1 pin 5 // wait for rising pclk
+	in pins 5
+	wait 0 pin 5
+	wait 1 pin 5 // wait for rising pclk
+	in null 3 // 8 - number_of_pins
+	wait 0 pin 5
 .wrap
 
 % c-sdk {
@@ -15,7 +15,7 @@ void image_program_init(PIO pio, uint sm, uint offset, uint pin_base) {
 
 	pio_sm_config c = image_program_get_default_config(offset);
 	// 2 least significant bits of data are ignored
-	sm_config_set_in_pins(&c, pin_base + 2);
+	sm_config_set_in_pins(&c, pin_base + 3);
 	//sm_config_set_in_pins(&c, pin_base);
 	sm_config_set_in_shift(&c, false, true, 8);
 	sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
