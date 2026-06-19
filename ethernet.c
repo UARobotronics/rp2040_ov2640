@@ -46,7 +46,7 @@ static uint16_t max_packet_size = 1700;
 
 static SOCKET socket = {0};
 
-const uint spi_speed = 31 * 1000 * 1000;
+const uint spi_speed = 60 * 1000 * 1000;
 
 bool ethernet_init()
 {
