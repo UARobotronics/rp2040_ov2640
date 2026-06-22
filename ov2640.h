@@ -5,7 +5,7 @@
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
 
-struct ov2640_config {
+typedef struct {
 	i2c_inst_t *sccb;
 	uint pin_sioc;
 	uint pin_siod;
@@ -24,14 +24,14 @@ struct ov2640_config {
 	size_t image_buf_size;
 	uint8_t *frame_buf;
 	size_t frame_buf_size;
-};
+} ov2640_config;
 
-void ov2640_init(struct ov2640_config *config);
+void ov2640_init(ov2640_config *config);
 
-void ov2640_init_capture(struct ov2640_config *config, bool full_frame);
+void ov2640_init_capture(ov2640_config *config, bool full_frame);
 
-void ov2640_reg_write(struct ov2640_config *config, uint8_t reg, uint8_t value);
-uint8_t ov2640_reg_read(struct ov2640_config *config, uint8_t reg);
-void ov2640_regs_write(struct ov2640_config *config, const uint8_t (*regs_list)[2]);
+void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value);
+uint8_t ov2640_reg_read(ov2640_config *config, uint8_t reg);
+void ov2640_regs_write(ov2640_config *config, const uint8_t (*regs_list)[2]);
 
 #endif

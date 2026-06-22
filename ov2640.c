@@ -17,7 +17,8 @@
 
 static const uint8_t OV2640_ADDR = 0x60 >> 1;
 
-void ov2640_init(struct ov2640_config *config) {
+void ov2640_init(ov2640_config *config)
+{
 	// XCLK generation (~20.83 MHz)
 	gpio_set_function(config->pin_xclk, GPIO_FUNC_PWM);
 	uint slice_num = pwm_gpio_to_slice_num(config->pin_xclk);
@@ -79,7 +80,8 @@ void frame_buffer_handler()
 	++current_row;
 }
 
-void ov2640_init_capture(struct ov2640_config *config, bool full_frame) {
+void ov2640_init_capture(ov2640_config *config, bool full_frame)
+{
 	current_row = 0;
 
 	irq_set_enabled(DMA_IRQ_0, false);
@@ -139,12 +141,14 @@ void ov2640_init_capture(struct ov2640_config *config, bool full_frame) {
 	}
 }
 
-void ov2640_reg_write(struct ov2640_config *config, uint8_t reg, uint8_t value) {
+void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value)
+{
 	uint8_t data[] = {reg, value};
 	i2c_write_blocking(config->sccb, OV2640_ADDR, data, sizeof(data), false);
 }
 
-uint8_t ov2640_reg_read(struct ov2640_config *config, uint8_t reg) {
+uint8_t ov2640_reg_read(ov2640_config *config, uint8_t reg)
+{
 	i2c_write_blocking(config->sccb, OV2640_ADDR, &reg, 1, false);
 
 	uint8_t value;
@@ -153,16 +157,17 @@ uint8_t ov2640_reg_read(struct ov2640_config *config, uint8_t reg) {
 	return value;
 }
 
-void ov2640_regs_write(struct ov2640_config *config, const uint8_t (*regs_list)[2]) {
-	while (1) {
+void ov2640_regs_write(ov2640_config *config, const uint8_t (*regs_list)[2])
+{
+	while (1)
+	{
 		uint8_t reg = (*regs_list)[0];
 		uint8_t value = (*regs_list)[1];
 
 		printf("Reg 0x%02x = 0x%02x\n", reg, value);
 		
-		if (reg == 0x00 && value == 0x00) {
+		if (reg == 0x00 && value == 0x00)
 			break;
-		}
 
 		ov2640_reg_write(config, reg, value);
 
