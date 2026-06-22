@@ -1970,6 +1970,9 @@ static spi_inst_t* _spi = { 0 };
 static uint _reset_gpio = { 0 };
 static uint _cs_gpio = { 0 };
 
+static uint16_t _current_port = 0;
+static uint32_t _current_ip = 0;
+
 int _write_register_buffer_(uint32_t address, const uint8_t* data, uint16_t length) {
 	static uint8_t buffer[4] = { 0 };
 	gpio_put(_cs_gpio, 0);
@@ -2550,14 +2553,19 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 				return false;
 			}
 
-			if(!_write_register_(Sn_DESTINATION_PORT_REGISTER(s->socket_number), *(((uint8_t*)&port) + 1))) {
-				s->error = SOCKET_ERROR_BUS_REGISTER;
-				return false;
-			}
+			if (port != _current_port)
+			{
+				if(!_write_register_(Sn_DESTINATION_PORT_REGISTER(s->socket_number), *(((uint8_t*)&port) + 1))) {
+					s->error = SOCKET_ERROR_BUS_REGISTER;
+					return false;
+				}
 
-			if(!_write_register_(OFFSET_INC(Sn_DESTINATION_PORT_REGISTER(s->socket_number), 1), *(((uint8_t*)&port) + 0))) {
-				s->error = SOCKET_ERROR_BUS_REGISTER;
-				return false;
+				if(!_write_register_(OFFSET_INC(Sn_DESTINATION_PORT_REGISTER(s->socket_number), 1), *(((uint8_t*)&port) + 0))) {
+					s->error = SOCKET_ERROR_BUS_REGISTER;
+					return false;
+				}
+
+				_current_port = port;
 			}
 			s->remote_port = port;
 		//так, тут немає break, так повинно бути
@@ -2568,9 +2576,13 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 				return false;
 			}
 
-			if(!_write_register_buffer_(Sn_DESTINATION_IP_REGISTER(s->socket_number), (uint8_t*)&address->ip, 4)) {
-				s->error = SOCKET_ERROR_BUS_DATA;
-				return false;
+			if (address->ip != _current_ip) {
+				if(!_write_register_buffer_(Sn_DESTINATION_IP_REGISTER(s->socket_number), (uint8_t*)&address->ip, 4)) {
+					s->error = SOCKET_ERROR_BUS_DATA;
+					return false;
+				}
+
+				_current_ip = address->ip;
 			}
 			s->remote_address.ip = address->ip;
 		//тут також немає
