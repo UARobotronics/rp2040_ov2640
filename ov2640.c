@@ -127,7 +127,7 @@ void ov2640_init_capture(ov2640_config *config, bool full_frame)
 	// while (gpio_get(config->pin_vsync) == false);
 	// uint64_t end = time_us_64();
 
-	// printf("VSYNC has been low for %llu micros\n", end - start);
+	// PRINTF("VSYNC has been low for %llu micros\n", end - start);
 
 	dma_channel_start(config->dma_channel);
 
@@ -164,7 +164,7 @@ void ov2640_regs_write(ov2640_config *config, const uint8_t (*regs_list)[2])
 		uint8_t reg = (*regs_list)[0];
 		uint8_t value = (*regs_list)[1];
 
-		printf("Reg 0x%02x = 0x%02x\n", reg, value);
+		PRINTF("Reg 0x%02x = 0x%02x\n", reg, value);
 		
 		if (reg == 0x00 && value == 0x00)
 			break;

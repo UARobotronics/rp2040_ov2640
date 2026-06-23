@@ -62,14 +62,6 @@ transfer_data_t transfer_data = {
 
 const int PIN_LED = 25;
 
-// const int PIN_CAM_SIOC = 21; // I2C0 SCL
-// const int PIN_CAM_SIOD = 20; // I2C0 SDA
-// const int PIN_CAM_RESETB = 2;
-// const int PIN_CAM_XCLK = 3;
-// const int PIN_CAM_VSYNC = 14;
-// const int PIN_CAM_Y2_PIO_BASE = 4;
-// #define I2C i2c0
-
 const int PIN_CAM_SIOC = 27; // I2C0 SCL
 const int PIN_CAM_SIOD = 26; // I2C0 SDA
 const int PIN_CAM_RESETB = 22;
@@ -77,10 +69,6 @@ const int PIN_CAM_XCLK = 0;
 const int PIN_CAM_VSYNC = 15;
 const int PIN_CAM_Y2_PIO_BASE = 5;
 #define I2C i2c1
-
-const uint8_t CMD_REG_WRITE = 0xAA;
-const uint8_t CMD_REG_READ = 0xBB;
-const uint8_t CMD_CAPTURE = 0xCC;
 
 const int PACKET_HEADER_SIZE = 4;
 
@@ -98,14 +86,8 @@ process_data_t process_buffers[BUFFERS_COUNT] = {
 
 uint8_t* frame_ready_buf = NULL;
 
-// uint8_t* transfer_buf = NULL;
-
-extern volatile uint16_t chunk_count;
-
-volatile uint16_t sent_packets = 0;
 volatile uint16_t current_row = 0;
 uint16_t current_frame = 0;
-uint16_t received_rows = 0;
 
 // Video stream settings
 enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
@@ -115,7 +97,25 @@ uint8_t skip_rows = 0;
 enum color_depth_e e_color_depth = COLOR_DEPTH_5_BYTES;
 bool full_frame_capturing = false;
 
-volatile uint64_t total_send_micros = 0;
+volatile stats_t stats;
+
+void reset_stats(volatile stats_t* st)
+{
+	st->total_send_micros = 0;
+	st->total_packet_prepare_micros = 0;
+	st->total_free_tx_micros = 0;
+	st->total_spi_send_micros = 0;
+	st->total_core_spi_send_micros = 0;
+	st->total_packet_finalize_micros = 0;
+	st->total_spi_send_count = 0;
+	st->total_packet_attempt_send_count = 0;
+	st->total_receive_micros = 0;
+	st->total_process_micros = 0;
+	st->total_send_len = 0;
+	st->row_count = 0;
+    st->received_rows = 0;
+    st->sent_packets = 0;
+}
 
 // return : how many consecutive pixels that have the same color can be
 //          packed into single byte with their color value.
@@ -151,9 +151,9 @@ void core1_main()
 			uint64_t start = time_us_64();
 			send_data(transfer_data.pixel_data, transfer_data.pixel_data_size);
 			uint64_t end = time_us_64();
-			// printf("Sent row data in %llu micros\n", end - start);
-			total_send_micros += end - start;
-			++sent_packets;
+			// PRINTF("Sent row data in %llu micros\n", end - start);
+			stats.total_send_micros += end - start;
+			++stats.sent_packets;
 		}
 	}
 }
@@ -249,8 +249,8 @@ void test_ethernet_transfer()
 
 	uint64_t end = time_us_64();
 
-	printf("Sent %llu bytes of data\n", bytes_sent);
-	printf("Total time in micros: %llu\n", end - start);
+	PRINTF("Sent %llu bytes of data\n", bytes_sent);
+	PRINTF("Total time in micros: %llu\n", end - start);
 }
 
 int main()
@@ -262,7 +262,7 @@ int main()
 	// while (!tud_cdc_connected())
 	// 	sleep_ms(10);
 
-	printf("\n\nBooted!\n");
+	PRINTF("\n\nBooted!\n");
 
 	gpio_init(PIN_LED);
 	gpio_set_dir(PIN_LED, GPIO_OUT);
@@ -290,7 +290,7 @@ int main()
 		bool success = ethernet_init();
 		if (!success)
 		{
-			printf("Ethernet init failed!\n");
+			PRINTF("Ethernet init failed!\n");
 
 			return 1;
 		}
@@ -299,31 +299,27 @@ int main()
 	sleep_ms(1000);
 	
 	ov2640_init(&config);
-	printf("Camera initialized\n");
+	PRINTF("Camera initialized\n");
 
 	// test_ethernet_transfer();
 
 	multicore_launch_core1(core1_main);
 
 	ov2640_init_capture(&config, full_frame_capturing);
-	printf("Camera streaming initialized\n");
+	PRINTF("Camera streaming initialized\n");
 
 	uint64_t start_time = time_us_64();
 	uint16_t frame_count = 0;
 	uint16_t missed_rows = 0;
 	uint16_t prev_row = current_row;
-	sent_packets = 0;
 	uint64_t row_time = 0;
 	uint64_t prev_row_time = 0;
 
 	memset(image_buf, 0, sizeof(image_buf));
+	reset_stats(&stats);
 
 	bool do_process = true;
 	absolute_time_t new_frame_time = 0;
-	uint64_t total_receive_micros = 0;
-	uint64_t total_process_micros = 0;
-	uint64_t total_send_len = 0;
-	uint64_t row_count = 0;
 
 	// Counters for rolling color depth and skip rows settings
 	static uint8_t color_depth_counter = 0;
@@ -366,7 +362,7 @@ int main()
 		{
 			if (frame_ready_buf)
 			{
-				++received_rows;
+				++stats.received_rows;
 
 				if (do_process)
 				{
@@ -380,9 +376,9 @@ int main()
 						row_time = time_us_64();
 						if (prev_row_time > 0)
 						{
-							//printf("Micros passed since prev row data: %llu\n", row_time - prev_row_time);
-							total_receive_micros += row_time - prev_row_time;
-							row_count++;
+							//PRINTF("Micros passed since prev row data: %llu\n", row_time - prev_row_time);
+							stats.total_receive_micros += row_time - prev_row_time;
+							stats.row_count++;
 						}
 						prev_row_time = row_time;
 
@@ -407,12 +403,12 @@ int main()
 									transfer_data.ready = true;
 								}
 								uint64_t end = time_us_64();
-								total_send_len += len;
-								total_process_micros += end - start;
+								stats.total_send_len += process_buf->length;
+								stats.total_process_micros += end - start;
 
-								// printf("Processed row data in %llu micros\n", end - start);
-								// printf("Processed buffer length for %u row: %u\n", current_row, len);
-								// printf("Received %u row data\n", current_row);
+								// PRINTF("Processed row data in %llu micros\n", end - start);
+								// PRINTF("Processed buffer length for %u row: %u\n", current_row, len);
+								// PRINTF("Received %u row data\n", current_row);
 
 								if (current_row - prev_row > 1)
 									++missed_rows;
@@ -455,36 +451,43 @@ int main()
 
 			if (full_frame_capturing)
 			{
-				printf("FPS: %u\n", frame_count);
+				PRINTF("FPS: %u\n", frame_count);
 			}
 			else
 			{
-				uint64_t receive_micros = total_receive_micros / row_count;
-				uint64_t process_micros = total_process_micros / row_count;
-				uint64_t send_len = total_send_len / row_count;
-				uint64_t send_micros = total_send_micros / sent_packets;
+				uint64_t receive_micros = stats.total_receive_micros / stats.row_count;
+				uint64_t process_micros = stats.total_process_micros / stats.row_count;
+				uint64_t send_len = stats.total_send_len / stats.row_count;
+				uint64_t send_micros = stats.total_send_micros / stats.sent_packets;
+				uint64_t packet_prepare_micros = stats.total_packet_prepare_micros / stats.total_spi_send_count;
+				uint64_t packet_free_tx_micros = stats.total_free_tx_micros / stats.total_spi_send_count;
+				uint64_t spi_send_micros = stats.total_spi_send_micros / stats.total_spi_send_count;
+				uint64_t core_spi_send_micros = stats.total_core_spi_send_micros / stats.total_spi_send_count;
+				uint64_t packet_finalize_micros = stats.total_packet_finalize_micros / stats.total_spi_send_count;
 
-				printf("FPS: %u\n", received_rows / FRAME_HEIGHT);
-				printf("Obtained rows: %u\n", received_rows);
-				printf("Missed rows: %u\n", missed_rows);
-				printf("Retrieved single row data in %llu micros\n", receive_micros);
-				printf("Processed single row data in %llu micros\n", process_micros);
-				printf("Sent single row data in %llu micros\n", send_micros);
-				printf("Average udp packet length is %llu bytes\n", send_len);
-
-				total_receive_micros = 0;
-				total_process_micros = 0;
-				total_send_micros = 0;
-				total_send_len = 0;
-
-				row_count = 0;
+				PRINTF("FPS: %u\n", stats.received_rows / FRAME_HEIGHT);
+				PRINTF("Received rows from camera: %u\n", stats.received_rows);
+				PRINTF("Missed rows: %u\n", missed_rows);
+				PRINTF("Sent packets: %u\n", stats.sent_packets);
+				PRINTF("Retrieved single row data in %llu micros\n", receive_micros);
+				PRINTF("Processed single row data in %llu micros\n", process_micros);
+				PRINTF("\n");
+				PRINTF("Sent single packet data in %llu micros\n", send_micros);
+				PRINTF("Single packet prepare in %llu micros\n", packet_prepare_micros);
+				PRINTF("Single packet free TX buffer in %llu micros\n", packet_free_tx_micros);
+				PRINTF("Single packet data SPI transfer done in %llu micros\n", spi_send_micros);
+				PRINTF("Single packet data core SPI transfer done in %llu micros\n", core_spi_send_micros);
+				PRINTF("Single packet finalize in %llu micros\n", packet_finalize_micros);
+				PRINTF("\n");
+				PRINTF("Average udp packet length is %llu bytes\n", send_len);
+				PRINTF("Packet count (attempt/sending) is %u\\%u\n", stats.total_packet_attempt_send_count, stats.total_spi_send_count);
 			}
+
+			reset_stats(&stats);
 
 			start_time = time_us_64();
 			frame_count = 0;
 			missed_rows = 0;
-			sent_packets = 0;
-			received_rows = 0;
 		}
 	}
 

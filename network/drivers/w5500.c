@@ -7,6 +7,8 @@
 #include "pico/time.h"
 #include "hardware/gpio.h"
 
+#include "common.h"
+
 #define _W5500_SPI_VDM_OP_			0x00
 #define _W5500_SPI_FDM_OP_LEN1_		0x01
 #define _W5500_SPI_FDM_OP_LEN2_		0x02
@@ -1970,6 +1972,8 @@ static spi_inst_t* _spi = { 0 };
 static uint _reset_gpio = { 0 };
 static uint _cs_gpio = { 0 };
 
+extern volatile stats_t stats;
+
 static uint16_t _current_port = 0;
 static uint32_t _current_ip = 0;
 
@@ -2062,8 +2066,16 @@ bool __write__(uint8_t sn, const uint8_t* buffer, uint16_t length) {
 		return false;
 	}
 
+	uint64_t start = time_us_64();
+
 	uint32_t address = ((uint32_t)ptr << 8) + (TXBUF_BLOCK(sn) << 3);
 	ptr += _write_register_buffer_(address, buffer, length);
+
+	// Check length to take into account only image data
+	if (length > 100)
+	{
+		stats.total_core_spi_send_micros += time_us_64() - start;
+	}
 
 	if(!_write_register_(Sn_TRANSMIT_WRITE_REGISTER(sn), *(((uint8_t*)&ptr) + 1))) {
 		return false;
@@ -2529,6 +2541,9 @@ bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uin
 bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const struct IPv4_ADDRESS_s* address, uint16_t port) {
 	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
 
+	++stats.total_packet_attempt_send_count;
+	uint64_t start = time_us_64();
+
 	uint16_t max_size = 0;
 	if(!_tx_buffer_max_size_(socket, &max_size)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
@@ -2595,6 +2610,9 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 			return false;
 	}
 
+	stats.total_packet_prepare_micros += time_us_64() - start;
+	start = time_us_64();
+
 	if(!_tx_buffer_free_size_(socket, &max_size)) {
 		return false;
 	}
@@ -2604,10 +2622,18 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 		return false;
 	}
 
+	stats.total_free_tx_micros += time_us_64() - start;
+	start = time_us_64();
+
 	if(!__write__(s->socket_number, buffer, size)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
+
+	stats.total_spi_send_micros += time_us_64() - start;
+	++stats.total_spi_send_count;
+
+	start = time_us_64();
 
 	if(!_write_register_(Sn_COMMAND_REGISTER(s->socket_number), Sn_COMMAND_REGISTER_SEND)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
@@ -2620,6 +2646,8 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 			return false;
 		}
 	} while(mode);
+
+	stats.total_packet_finalize_micros += time_us_64() - start;
 
 	s->error = SOCKET_ERROR_OK;
 	return true;
