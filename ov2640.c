@@ -141,6 +141,19 @@ void ov2640_init_capture(ov2640_config *config, bool full_frame)
 	}
 }
 
+void ov2640_reset_dma_channel(ov2640_config *config)
+{
+	irq_set_enabled(DMA_IRQ_0, false);
+	dma_channel_abort(config->dma_channel);
+
+	dma_channel_acknowledge_irq0(config->dma_channel);
+	dma_channel_set_transfer_count(config->dma_channel, config->frame_buf_size, false);
+
+	irq_set_enabled(DMA_IRQ_0, true);
+
+	dma_channel_start(config->dma_channel);
+}
+
 void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value)
 {
 	uint8_t data[] = {reg, value};

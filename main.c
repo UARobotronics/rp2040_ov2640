@@ -13,6 +13,7 @@
 
 #include "common.h"
 #include "ethernet.h"
+#include "misc.h"
 #include "ov2640.h"
 #include "transfer.h"
 
@@ -319,11 +320,12 @@ int main()
 	reset_stats(&stats);
 
 	bool do_process = true;
-	absolute_time_t new_frame_time = 0;
+	absolute_time_t next_frame_time = 0;
+	absolute_time_t last_normal_frame_time = time_us_64();
 
 	// Counters for rolling color depth and skip rows settings
-	static uint8_t color_depth_counter = 0;
-	static uint8_t skip_rows_counter = 0;
+	uint8_t color_depth_counter = 0;
+	uint8_t skip_rows_counter = 0;
 
 	while (true)
 	{
@@ -333,7 +335,7 @@ int main()
 		{
 			if (do_process)
 			{
-				if (time_reached(new_frame_time))
+				if (time_reached(next_frame_time))
 				{
 					// Wait for start of the new frame
 					while (gpio_get(config.pin_vsync) == true);
@@ -353,7 +355,7 @@ int main()
 					}
 
 					++frame_count;
-					new_frame_time = make_timeout_time_ms(2000);
+					next_frame_time = make_timeout_time_ms(2000);
 					// do_process = false;
 				}
 			}
@@ -429,9 +431,29 @@ int main()
 			if (gpio_get(config.pin_vsync) == false)
 			{
 				// Period between frames data. No image data is coming now.
+				// Let's do some useful stuff!
 
-				// Underflow is intentional. On first increment current row must be 0.
+				// Underflow is intentional. After first increment current row must become 0.
 				current_row = -1;
+
+				io_rw_32 transfer_count = dma_channel_get_transfer_count(config.dma_channel);
+
+				// Check if frame is fractured and left part of the frame appears
+				// to the right
+				if (transfer_count < FRAME_WIDTH - CRITICAL_FRAME_SHIFT)
+				{
+					if (time_us_64() - last_normal_frame_time > FRACTURED_FRAME_TIME_MS * 1000)
+					{
+						PRINTF("Frame is fractured, resetting DMA channel...\n");
+
+						ov2640_reset_dma_channel(&config);
+						last_normal_frame_time = time_us_64();
+					}
+				}
+				else
+				{
+					last_normal_frame_time = time_us_64();
+				}
 			}
 		}
 

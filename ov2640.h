@@ -29,6 +29,7 @@ typedef struct {
 void ov2640_init(ov2640_config *config);
 
 void ov2640_init_capture(ov2640_config *config, bool full_frame);
+void ov2640_reset_dma_channel(ov2640_config *config);
 
 void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value);
 uint8_t ov2640_reg_read(ov2640_config *config, uint8_t reg);
