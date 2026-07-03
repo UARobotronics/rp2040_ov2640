@@ -11,12 +11,12 @@
 #include "network/network.h"
 #include "network/drivers/w5500.h"
 
-#define ETHERNET_W5500_MISO_GPIO					16
-#define ETHERNET_W5500_MOSI_GPIO					19
-#define ETHERNET_W5500_SCLK_GPIO					18
-#define ETHERNET_W5500_CS_GPIO						17
-
-#define ETHERNET_W5500_RESET_GPIO					22
+#define ETHERNET_SPI								spi0
+#define ETHERNET_MISO_GPIO							16
+#define ETHERNET_MOSI_GPIO							19
+#define ETHERNET_SCLK_GPIO							18
+#define ETHERNET_CS_GPIO							17
+#define ETHERNET_RESET_GPIO                         22
 
 static struct ETHERNET_INTERFACE_s _ethernetInterface = { 0 };
 
@@ -52,11 +52,13 @@ bool ethernet_init()
 {
 	uint baud = spi_init(spi0, spi_speed);
 
-	gpio_set_function(ETHERNET_W5500_MOSI_GPIO, GPIO_FUNC_SPI);
-	gpio_set_function(ETHERNET_W5500_MISO_GPIO, GPIO_FUNC_SPI);
-	gpio_set_function(ETHERNET_W5500_SCLK_GPIO, GPIO_FUNC_SPI);
+	gpio_set_function(ETHERNET_MOSI_GPIO, GPIO_FUNC_SPI);
+	gpio_set_function(ETHERNET_MISO_GPIO, GPIO_FUNC_SPI);
+	gpio_set_function(ETHERNET_SCLK_GPIO, GPIO_FUNC_SPI);
 
-	if(!w5500_network_init(&_ethernetInterface, spi0, ETHERNET_W5500_CS_GPIO, ETHERNET_W5500_RESET_GPIO)) {
+	// if(!w5500_network_init(&_ethernetInterface, spi0, ETHERNET_W5500_CS_GPIO, ETHERNET_W5500_RESET_GPIO)) {
+	if(!w5500_network_init_with_reset_gpio(&_ethernetInterface, ETHERNET_SPI, ETHERNET_CS_GPIO, ETHERNET_RESET_GPIO)) {
+
 		printf("w5500_network_init - FAILED\n");
 
         return false;
@@ -86,7 +88,7 @@ bool ethernet_init()
         return false;
 	}
 
-	if(!network_socket_bind(&_ethernetInterface, &socket, &_config.ip, _config.port)) {
+	if(!network_socket_bind(&_ethernetInterface, socket, &_config.ip, _config.port)) {
 		printf("network_socket_bind - FAILED\n");
 
         return false;
@@ -102,7 +104,7 @@ bool ethernet_send_udp(uint8_t* data, uint32_t data_len)
 	{
 		uint32_t left_len = data_len - shift;
 		uint16_t size = (left_len < max_packet_size) ? left_len : max_packet_size;
-		network_socket_sendto(&_ethernetInterface, &socket, data+shift, size, &dst_address, dst_port);
+		network_socket_sendto(&_ethernetInterface, socket, data+shift, size, &dst_address, dst_port);
 		//sleep_ms(5);
 
 		shift += size;

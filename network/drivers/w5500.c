@@ -332,7 +332,7 @@
 	@details @ref Sn_PORT configures the source port number of Socket n.
 	It is valid when Socket n is used in TCP/UDP mode. It should be set before OPEN command is ordered.
 */
-#define Sn_PORT(N)					(_W5500_IO_BASE_ + (0x0004 << 8) + (SREG_BLOCK(N) << 3))
+#define Sn_SOURCE_PORT_REGISTER(N)	(_W5500_IO_BASE_ + (0x0004 << 8) + (SREG_BLOCK(N) << 3))
 
 /**
 	@ingroup Socket_register_group
@@ -1677,11 +1677,6 @@
 	@sa setSn_PORT()
 */
 //M20150401 : Type explict declaration
-/*
-	#define getSn_PORT(sn) \
-		((WIZCHIP_READ(Sn_PORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_PORT(sn),1)))
-*/
-#define getSn_PORT(sn) (((uint16_t)WIZCHIP_READ(Sn_PORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_PORT(sn),1)))
 
 /**
 	@ingroup Socket_register_access_function
@@ -1701,33 +1696,6 @@
 */
 #define getSn_DHAR(sn, dhar) WIZCHIP_READ_BUF(Sn_DHAR(sn), dhar, 6)
 
-/**
-	@ingroup Socket_register_access_function
-	@brief Set @ref Sn_DPORT register
-	@param (uint8_t)sn Socket number. It should be <b>0 ~ 7</b>.
-	@param (uint16_t)dport Value to set @ref Sn_DPORT
-	@sa getSn_DPORT()
-*/
-#define setSn_DPORT(sn, dport) { \
-		WIZCHIP_WRITE(Sn_DPORT(sn),   (uint8_t) (dport>>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_DPORT(sn),1), (uint8_t)  dport); \
-	}
-#define setSn_DPORTR(sn, dport)   setSn_DPORT(sn,dport) ///< For compatible ioLibrary. Refer to @ref Sn_DPORTR.
-
-/**
-	@ingroup Socket_register_access_function
-	@brief Get @ref Sn_DPORT register
-	@param (uint8_t)sn Socket number. It should be <b>0 ~ 7</b>.
-	@return uint16_t. Value of @ref Sn_DPORT.
-	@sa setSn_DPORT()
-*/
-//M20150401 : Type explict declaration
-/*
-	#define getSn_DPORT(sn) \
-		((WIZCHIP_READ(Sn_DPORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_DPORT(sn),1)))
-*/
-#define getSn_DPORT(sn) (((uint16_t)WIZCHIP_READ(Sn_DPORT(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_DPORT(sn),1)))
-#define getSn_DPORTR(sn)  getSn_DPORT(sn)
 /**
 	@ingroup Socket_register_access_function
 	@brief Set @ref Sn_MSSR register
@@ -1956,7 +1924,6 @@
 #define getSn_TxMAX(sn) (((uint16_t)getSn_TXBUF_SIZE(sn)) << 10)
 
 struct __attribute__((packed)) SOCKET_s {
-	uint8_t socket_number;
 	struct IPv4_ADDRESS_s local_address;
 	struct IPv4_ADDRESS_s remote_address;
 	uint16_t local_port;
@@ -1967,19 +1934,19 @@ struct __attribute__((packed)) SOCKET_s {
 	socket_error_t error;
 };
 
-static struct SOCKET_s _sockets[8] = { 0 }; 
-static spi_inst_t* _spi = { 0 };
-static uint _reset_gpio = { 0 };
-static uint _cs_gpio = { 0 };
+struct __attribute__((packed)) PRIVATE_DATA_s {
+	struct SOCKET_s sockets[8];
+	spi_inst_t* spi;
+	uint cs_gpio;
+	uint reset_gpio;
+	w5500_reset_hw_func reset_func;
+};
 
 extern volatile stats_t stats;
 
-static uint16_t _current_port = 0;
-static uint32_t _current_ip = 0;
-
-int _write_register_buffer_(uint32_t address, const uint8_t* data, uint16_t length) {
-	static uint8_t buffer[4] = { 0 };
-	gpio_put(_cs_gpio, 0);
+int _write_register_buffer_(spi_inst_t* spi, uint cs_gpio, uint32_t address, const uint8_t* data, uint16_t length) {
+	static uint8_t buffer[3] = { 0 };
+	gpio_put(cs_gpio, false);
 
 	address |= (_W5500_SPI_WRITE_ | _W5500_SPI_VDM_OP_);
 
@@ -1987,125 +1954,132 @@ int _write_register_buffer_(uint32_t address, const uint8_t* data, uint16_t leng
 	buffer[1] = (address & 0x0000FF00) >> 8;
 	buffer[2] = (address & 0x000000FF) >> 0;
 
-	spi_write_blocking(_spi, buffer, 3);
-	address = spi_write_blocking(_spi, data, length);
+	if(spi_write_blocking(spi, buffer, 3) != 3) {
+		gpio_put(cs_gpio, true);
+		return 0;
+	}
 
-	gpio_put(_cs_gpio, 1);
+	address = spi_write_blocking(spi, data, length);
+	gpio_put(cs_gpio, true);
 	return address;
 }
 
-inline bool _write_register_(uint32_t address, uint8_t data) {
-	return _write_register_buffer_(address, &data, 1) == 1;
+inline bool _write_register_(spi_inst_t* spi, uint cs_gpio, uint32_t address, uint8_t data) {
+	return _write_register_buffer_(spi, cs_gpio, address, &data, 1) == 1;
 }
 
-uint16_t _read_register_buffer_(uint32_t address, uint8_t* data, uint16_t length) {
+uint16_t _read_register_buffer_(spi_inst_t* spi, uint cs_gpio, uint32_t address, uint8_t* data, uint16_t length) {
 	static uint8_t buffer[3] = { 0 };
-	gpio_put(_cs_gpio, 0);
+	gpio_put(cs_gpio, false);
 
 	address |= (_W5500_SPI_READ_ | _W5500_SPI_VDM_OP_);
 	buffer[0] = (address & 0x00FF0000) >> 16;
 	buffer[1] = (address & 0x0000FF00) >> 8;
 	buffer[2] = (address & 0x000000FF) >> 0;
-	spi_write_blocking(_spi, buffer, 3);
-	address = spi_read_blocking(_spi, 0xFF, data, length);
 
-	gpio_put(_cs_gpio, 1);
+	if(spi_write_blocking(spi, buffer, 3) != 3) {		
+		gpio_put(cs_gpio, true);
+		return 0;
+	}
+	
+	address = spi_read_blocking(spi, 0xFF, data, length);
+	gpio_put(cs_gpio, true);
 	return (uint16_t)address;
 }
 
-inline bool _read_register_(uint32_t address, uint8_t* data) {
-	return _read_register_buffer_(address, data, 1) == 1;
+inline bool _read_register_(spi_inst_t* spi, uint cs_gpio, uint32_t address, uint8_t* data) {
+	return _read_register_buffer_(spi, cs_gpio, address, data, 1) == 1;
 }
 
-bool __read__(uint8_t sn, uint8_t* buffer, uint16_t buffer_size, uint16_t* length) {
+bool __read__(spi_inst_t* spi, uint cs_gpio, uint8_t sn, uint8_t* buffer, uint16_t buffer_size, uint16_t* length) {
 	if (buffer_size == 0) {
 		return true;
 	}
 
 	uint16_t ptr = { 0 };
 
-	if(!_read_register_(Sn_RECEIVE_READ_REGISTER(sn), (((uint8_t*)&ptr) + 1))) {
+	if(!_read_register_(spi, cs_gpio, Sn_RECEIVE_READ_REGISTER(sn), (((uint8_t*)&ptr) + 1))) {
 		return false;
 	}
 
-	if(!_read_register_(OFFSET_INC(Sn_RECEIVE_READ_REGISTER(sn), 1), (((uint8_t*)&ptr) + 0))) {
+	if(!_read_register_(spi, cs_gpio, OFFSET_INC(Sn_RECEIVE_READ_REGISTER(sn), 1), (((uint8_t*)&ptr) + 0))) {
 		return false;
 	}
 
 	uint32_t address = ((uint32_t)(ptr) << 8) + (RXBUF_BLOCK(sn) << 3);
-	uint16_t l = _read_register_buffer_(address, buffer, buffer_size);
+	uint16_t l = _read_register_buffer_(spi, cs_gpio, address, buffer, buffer_size);
 	ptr += l;
 
 	if(length) {
 		*length = l;
 	}
 
-	if(!_write_register_(Sn_RECEIVE_READ_REGISTER(sn), *(((uint8_t*)&ptr) + 1))) {
+	if(!_write_register_(spi, cs_gpio, Sn_RECEIVE_READ_REGISTER(sn), *(((uint8_t*)&ptr) + 1))) {
 		return false;
 	}
 
-	if(!_write_register_(OFFSET_INC(Sn_RECEIVE_READ_REGISTER(sn), 1), *(((uint8_t*)&ptr) + 0))) {
+	if(!_write_register_(spi, cs_gpio, OFFSET_INC(Sn_RECEIVE_READ_REGISTER(sn), 1), *(((uint8_t*)&ptr) + 0))) {
 		return false;
 	}
 
 	return true;
 }
 
-bool __write__(uint8_t sn, const uint8_t* buffer, uint16_t length) {
+bool __write__(spi_inst_t* spi, uint cs_gpio, uint8_t sn, const uint8_t* buffer, uint16_t length) {
 	if (length == 0) {
 		return true;
 	}
 
 	uint16_t ptr = { 0 };
 
-	if(!_read_register_(Sn_TRANSMIT_WRITE_REGISTER(sn), (((uint8_t*)&ptr) + 1))) {
+	if(!_read_register_(spi, cs_gpio, Sn_TRANSMIT_WRITE_REGISTER(sn), (((uint8_t*)&ptr) + 1))) {
 		return false;
 	}
 
-	if(!_read_register_(OFFSET_INC(Sn_TRANSMIT_WRITE_REGISTER(sn), 1), (((uint8_t*)&ptr) + 0))) {
+	if(!_read_register_(spi, cs_gpio, OFFSET_INC(Sn_TRANSMIT_WRITE_REGISTER(sn), 1), (((uint8_t*)&ptr) + 0))) {
 		return false;
 	}
 
-	uint64_t start = time_us_64();
+    uint64_t start = time_us_64();
 
 	uint32_t address = ((uint32_t)ptr << 8) + (TXBUF_BLOCK(sn) << 3);
-	ptr += _write_register_buffer_(address, buffer, length);
+	ptr += _write_register_buffer_(spi, cs_gpio, address, buffer, length);
 
-	// Check length to take into account only image data
-	if (length > 100)
-	{
-		stats.total_core_spi_send_micros += time_us_64() - start;
-	}
+    // Check length to take into account only image data
+    if (length > 100)
+    {
+        stats.total_core_spi_send_micros += time_us_64() - start;
+    }
 
-	if(!_write_register_(Sn_TRANSMIT_WRITE_REGISTER(sn), *(((uint8_t*)&ptr) + 1))) {
+	if(!_write_register_(spi, cs_gpio, Sn_TRANSMIT_WRITE_REGISTER(sn), *(((uint8_t*)&ptr) + 1))) {
 		return false;
 	}
 
-	if(!_write_register_(OFFSET_INC(Sn_TRANSMIT_WRITE_REGISTER(sn), 1), *(((uint8_t*)&ptr) + 0))) {
+	if(!_write_register_(spi, cs_gpio, OFFSET_INC(Sn_TRANSMIT_WRITE_REGISTER(sn), 1), *(((uint8_t*)&ptr) + 0))) {
 		return false;
 	}
 
 	return true;
 }
 
-bool _get_transmit_free_size_(uint8_t socket_number, uint16_t* size) {
+bool _get_transmit_free_size_(spi_inst_t* spi, uint cs_gpio, uint8_t socket_number, uint16_t* size) {
 	uint8_t aV[2] = { 0 };
 	uint8_t bV[2] = { 0 };
 
     do {
-		if(!_read_register_(Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), &aV[0])) {
+		if(!_read_register_(spi, cs_gpio, Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), &aV[0])) {
 			return false;
 		}
 
-		if(!_read_register_(OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), 1), &bV[0])) {
+		if(!_read_register_(spi, cs_gpio, OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), 1), &bV[0])) {
 			return false;
 		}
 
-		if(!_read_register_(Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), &aV[1])) {
+		if(!_read_register_(spi, cs_gpio, Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), &aV[1])) {
 			return false;
 		}
 
-		if(!_read_register_(OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), 1), &bV[1])) {
+		if(!_read_register_(spi, cs_gpio, OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER(socket_number), 1), &bV[1])) {
 			return false;
 		}
     } while ((aV[0] != aV[1]) || (bV[0] != bV[1]));
@@ -2114,46 +2088,53 @@ bool _get_transmit_free_size_(uint8_t socket_number, uint16_t* size) {
     return true;
 }
 
-static bool _reset_hw_(void) {
-	gpio_put(_reset_gpio, 0);
+static bool _reset_hw_(void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	if(!pd->reset_func) {
+		gpio_put(pd->reset_gpio, false);
+		sleep_ms(100);
+		gpio_put(pd->reset_gpio, true);
+		sleep_ms(100);
+	} else {
+		pd->reset_func();
+	}
+
+	return true;
+}
+
+static bool _reset_sw_(void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	_write_register_(pd->spi, pd->cs_gpio, MODE_REGISTER, MODE_RESET_REGISTER);
 	sleep_ms(100);
-
-	gpio_put(_reset_gpio, 1);
-	sleep_ms(100);
+	return true;
 }
 
-static bool _reset_sw_(void) {
-	_write_register_(MODE_REGISTER, MODE_RESET_REGISTER);
-	sleep_ms(100);
+static bool _set_mac_address_(const struct MAC_ADDRESS_s* address, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	return _write_register_buffer_(pd->spi, pd->cs_gpio, SOURCE_MAC_REGISTER, (uint8_t*)&address->address, sizeof(struct MAC_ADDRESS_s)) == sizeof(struct MAC_ADDRESS_s);
 }
 
-static bool _set_mac_address_(const struct MAC_ADDRESS_s* address) {
-	return _write_register_buffer_(SOURCE_MAC_REGISTER, (uint8_t*)&address->address, sizeof(struct MAC_ADDRESS_s)) == sizeof(struct MAC_ADDRESS_s);
+static bool _get_mac_address_(struct MAC_ADDRESS_s* address, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	return _read_register_buffer_(pd->spi, pd->cs_gpio, SOURCE_MAC_REGISTER, (uint8_t*)&address->address, sizeof(struct MAC_ADDRESS_s)) == sizeof(struct MAC_ADDRESS_s);
 }
 
-static bool _get_mac_address_(struct MAC_ADDRESS_s* address) {
-	return _read_register_buffer_(SOURCE_MAC_REGISTER, (uint8_t*)&address->address, sizeof(struct MAC_ADDRESS_s)) == sizeof(struct MAC_ADDRESS_s);
-}
-
-bool _set_ipv4_address_(
-	const struct IPv4_ADDRESS_s* ip,
-	const struct IPv4_NETMASK_s* mask,
-	const struct IPv4_ADDRESS_s* gw) {
-
+bool _set_ipv4_address_(const struct IPv4_ADDRESS_s* ip, const struct IPv4_NETMASK_s* mask, const struct IPv4_ADDRESS_s* gw, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	if(ip) {
-		if(_write_register_buffer_(SOURCE_IP_REGISTER, (uint8_t*)&ip->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
+		if(_write_register_buffer_(pd->spi, pd->cs_gpio, SOURCE_IP_REGISTER, (uint8_t*)&ip->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
 			return false;
 		}
 	}
 
 	if(mask) {
-		if(_write_register_buffer_(SUBNET_MASK_REGISTER, (uint8_t*)&mask->mask, sizeof(struct IPv4_NETMASK_s)) != sizeof(struct IPv4_NETMASK_s)) {
+		if(_write_register_buffer_(pd->spi, pd->cs_gpio, SUBNET_MASK_REGISTER, (uint8_t*)&mask->mask, sizeof(struct IPv4_NETMASK_s)) != sizeof(struct IPv4_NETMASK_s)) {
 			return false;
 		}
 	}
 
 	if(gw) {
-		if(_write_register_buffer_(GATEWAY_ADDRESS_REGISTER, (uint8_t*)&gw->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
+		if(_write_register_buffer_(pd->spi, pd->cs_gpio, GATEWAY_ADDRESS_REGISTER, (uint8_t*)&gw->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
 			return false;
 		}
 	}
@@ -2161,24 +2142,22 @@ bool _set_ipv4_address_(
 	return true;
 }
 
-bool _get_ipv4_address_(
-	struct IPv4_ADDRESS_s* ip,
-	struct IPv4_NETMASK_s* mask,
-	struct IPv4_ADDRESS_s* gw) {
+bool _get_ipv4_address_(struct IPv4_ADDRESS_s* ip, struct IPv4_NETMASK_s* mask, struct IPv4_ADDRESS_s* gw, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	if(ip) {
-		if(_read_register_buffer_(SOURCE_IP_REGISTER, (uint8_t*)&ip->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
+		if(_read_register_buffer_(pd->spi, pd->cs_gpio, SOURCE_IP_REGISTER, (uint8_t*)&ip->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
 			return false;
 		}
 	}
 
 	if(mask) {
-		if(_read_register_buffer_(SUBNET_MASK_REGISTER, (uint8_t*)&mask->mask, sizeof(struct IPv4_NETMASK_s)) != sizeof(struct IPv4_NETMASK_s)) {
+		if(_read_register_buffer_(pd->spi, pd->cs_gpio, SUBNET_MASK_REGISTER, (uint8_t*)&mask->mask, sizeof(struct IPv4_NETMASK_s)) != sizeof(struct IPv4_NETMASK_s)) {
 			return false;
 		}
 	}
 
 	if(gw) {
-		if(_read_register_buffer_(GATEWAY_ADDRESS_REGISTER, (uint8_t*)&gw->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
+		if(_read_register_buffer_(pd->spi, pd->cs_gpio, GATEWAY_ADDRESS_REGISTER, (uint8_t*)&gw->ip, sizeof(struct IPv4_ADDRESS_s)) != sizeof(struct IPv4_ADDRESS_s)) {
 			return false;
 		}
 	}
@@ -2186,30 +2165,30 @@ bool _get_ipv4_address_(
 	return true;
 }
 
-bool _socket_(SOCKET* socket, socket_protocol_t protocol, uint8_t flags) {
-	*socket = (SOCKET)0;
-	uint8_t tmp = { 0 };
-	for(uint8_t i = 0; i < 8; i++) {
-		if(!_read_register_(Sn_STATUS_REGISTER(_sockets[i].socket_number), &tmp)) {
+bool _socket_(SOCKET* socket, socket_protocol_t protocol, uint8_t flags, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	uint8_t tmp = { 255 };
+
+	for(uint8_t i = 0; i < 9; i++) {
+		if(i > 7) {
 			return false;
 		}
+
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_STATUS_REGISTER(i), &tmp)) {
+			return false;
+		}
+
 		if(tmp == SOCK_CLOSED) {
-			*socket = (SOCKET)&_sockets[i];
+			*socket = (SOCKET)(uint)i;
 			uint16_t sizes[2] = { 0 };
-			sizes[0] = _sockets[i].tx_buffer_max_size;
-			sizes[1] = _sockets[i].rx_buffer_max_size;
-			memset(&_sockets[i], 0, sizeof(struct SOCKET_s));
-			_sockets[i].tx_buffer_max_size = sizes[0];
-			_sockets[i].rx_buffer_max_size = sizes[1];
+			sizes[0] = pd->sockets[i].tx_buffer_max_size;
+			sizes[1] = pd->sockets[i].rx_buffer_max_size;
+			memset(&pd->sockets[i], 0, sizeof(struct SOCKET_s));
+			pd->sockets[i].tx_buffer_max_size = sizes[0];
+			pd->sockets[i].rx_buffer_max_size = sizes[1];
 			break;
 		}
 	}
-
-	if(!(*socket)) {
-		return false;
-	}
-
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
 
 	tmp = flags & 0xF0;
 	switch(protocol) {
@@ -2221,33 +2200,33 @@ bool _socket_(SOCKET* socket, socket_protocol_t protocol, uint8_t flags) {
 			return false;
 	}
 
-	if(_write_register_(Sn_MODE_REGISTER(s->socket_number), tmp) != 1) {
+	if(!_write_register_(pd->spi, pd->cs_gpio, Sn_MODE_REGISTER((uint)*socket), tmp)) {
 		return false;
 	}
 
 	return true;
 }
 
-bool _close_(SOCKET* socket) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _close_(SOCKET socket, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 
-	if(!_write_register_(Sn_COMMAND_REGISTER(s->socket_number), Sn_COMMAND_REGISTER_CLOSE)) {
+	if(!_write_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER(((uint)socket)), Sn_COMMAND_REGISTER_CLOSE)) {
 		return false;
 	}
 
 	uint8_t tmp = { 0 };
 	do {
-		if(!_read_register_(Sn_COMMAND_REGISTER(s->socket_number), &tmp)) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), &tmp)) {
 			return false;
 		}
 	} while(tmp != 0);
 
-	if(!_write_register_(Sn_INTERRUPT_REGISTER(s->socket_number), (0xFF & 0x1F))) {
+	if(!_write_register_(pd->spi, pd->cs_gpio, Sn_INTERRUPT_REGISTER((uint)socket), (0xFF & 0x1F))) {
 		return false;
 	}
 
 	do {
-		if(!_read_register_(Sn_STATUS_REGISTER(s->socket_number), &tmp)) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_STATUS_REGISTER((uint)socket), &tmp)) {
 			return false;
 		}
 	} while(tmp != SOCK_CLOSED);
@@ -2255,7 +2234,8 @@ bool _close_(SOCKET* socket) {
 	return true;
 }
 
-bool _rx_buffer_clear_(SOCKET* socket) {
+bool _rx_buffer_clear_(SOCKET socket, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	return false;
 /*
 	uint16_t ptr = 0;
@@ -2265,44 +2245,47 @@ bool _rx_buffer_clear_(SOCKET* socket) {
 */
 }
 
-bool _tx_buffer_clear_(SOCKET* socket) {
+bool _tx_buffer_clear_(SOCKET socket, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	return false;
 }
 
-bool _rx_buffer_max_size_(const SOCKET* socket, uint16_t* size) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
-	*size = s->rx_buffer_max_size; 
+bool _rx_buffer_max_size_(SOCKET socket, uint16_t* size, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	*size = pd->sockets[(uint)socket].rx_buffer_max_size; 
 	return true;
 }
 
-bool _tx_buffer_max_size_(const SOCKET* socket, uint16_t* size) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
-	*size = s->tx_buffer_max_size; 
+bool _tx_buffer_max_size_(SOCKET socket, uint16_t* size, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	*size = pd->sockets[(uint)socket].tx_buffer_max_size; 
 	return true;
 }
 
-bool _rx_buffer_size_(const SOCKET* socket, uint16_t* size) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _rx_buffer_size_(SOCKET socket, uint16_t* size, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
+
 	uint16_t aV = { 0 };
 	uint16_t bV = { 0 };
 
 	do {
-		if(!_read_register_(Sn_RECEIVED_DATA_SIZE_REGISTER(s->socket_number), (((uint8_t*)&aV) + 1))) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_RECEIVED_DATA_SIZE_REGISTER((uint)socket), (((uint8_t*)&aV) + 1))) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 
-		if(!_read_register_(OFFSET_INC(Sn_RECEIVED_DATA_SIZE_REGISTER(s->socket_number), 1), (((uint8_t*)&aV) + 0))) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_RECEIVED_DATA_SIZE_REGISTER((uint)socket), 1), (((uint8_t*)&aV) + 0))) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 
-		if(!_read_register_(Sn_RECEIVED_DATA_SIZE_REGISTER(s->socket_number), (((uint8_t*)&bV) + 1))) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_RECEIVED_DATA_SIZE_REGISTER((uint)socket), (((uint8_t*)&bV) + 1))) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 
-		if(!_read_register_(OFFSET_INC(Sn_RECEIVED_DATA_SIZE_REGISTER(s->socket_number), 1), (((uint8_t*)&bV) + 0))) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_RECEIVED_DATA_SIZE_REGISTER((uint)socket), 1), (((uint8_t*)&bV) + 0))) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
@@ -2312,39 +2295,40 @@ bool _rx_buffer_size_(const SOCKET* socket, uint16_t* size) {
 	return true;
 }
 
-bool _tx_buffer_size_(const SOCKET* socket, uint16_t* size) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _tx_buffer_size_(SOCKET socket, uint16_t* size, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	return false;
 }
 
-bool _rx_buffer_free_size_(const SOCKET* socket, uint16_t* size) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _rx_buffer_free_size_(SOCKET socket, uint16_t* size, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	return false;
 }
 
-bool _tx_buffer_free_size_(const SOCKET* socket, uint16_t* size) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _tx_buffer_free_size_(SOCKET socket, uint16_t* size, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+
 	uint16_t aV = { 0 };
 	uint16_t bV = { 0 };
-
+ 
 	do {
-		if(!_read_register_(Sn_TRANSMIT_FREE_SIZE_REGISTER(s->socket_number), (((uint8_t*)&aV) + 1))) {
-			s->error = SOCKET_ERROR_BUS_REGISTER;
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_TRANSMIT_FREE_SIZE_REGISTER((uint)socket), (((uint8_t*)&aV) + 1))) {
+			pd->sockets[(uint)socket].error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 
-		if(!_read_register_(OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER(s->socket_number), 1), (((uint8_t*)&aV) + 0))) {
-			s->error = SOCKET_ERROR_BUS_REGISTER;
+		if(!_read_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER((uint)socket), 1), (((uint8_t*)&aV) + 0))) {
+			pd->sockets[(uint)socket].error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 
-		if(!_read_register_(Sn_TRANSMIT_FREE_SIZE_REGISTER(s->socket_number), (((uint8_t*)&bV) + 1))) {
-			s->error = SOCKET_ERROR_BUS_REGISTER;
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_TRANSMIT_FREE_SIZE_REGISTER((uint)socket), (((uint8_t*)&bV) + 1))) {
+			pd->sockets[(uint)socket].error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 
-		if(!_read_register_(OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER(s->socket_number), 1), (((uint8_t*)&bV) + 0))) {
-			s->error = SOCKET_ERROR_BUS_REGISTER;
+		if(!_read_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_TRANSMIT_FREE_SIZE_REGISTER((uint)socket), 1), (((uint8_t*)&bV) + 0))) {
+			pd->sockets[(uint)socket].error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 	} while (aV != bV);
@@ -2353,7 +2337,8 @@ bool _tx_buffer_free_size_(const SOCKET* socket, uint16_t* size) {
 	return true;
 }
 
-bool _bind_(SOCKET* socket, const struct IPv4_ADDRESS_s* ip, uint16_t port) {
+bool _bind_(SOCKET socket, const struct IPv4_ADDRESS_s* ip, uint16_t port, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	static uint16_t _socket_any_port = 1000;
 	if (!port) {
         port = _socket_any_port++;
@@ -2362,20 +2347,19 @@ bool _bind_(SOCKET* socket, const struct IPv4_ADDRESS_s* ip, uint16_t port) {
         }
     }
 
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
-
-	if(_write_register_(Sn_PORT(s->socket_number), (uint8_t)(port >> 8)) != 1) {
+	if(_write_register_(pd->spi, pd->cs_gpio, Sn_SOURCE_PORT_REGISTER((uint)socket), (uint8_t)(port >> 8)) != 1) {
 		return false;
 	}
 
-	if(_write_register_(OFFSET_INC(Sn_PORT(s->socket_number), 1), (uint8_t)port) != 1) {
+	if(_write_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_SOURCE_PORT_REGISTER((uint)socket), 1), (uint8_t)port) != 1) {
 		return false;
 	}
-	s->local_address.ip = ip->ip; 
-	s->local_port = port;
+
+	pd->sockets[(uint)socket].local_address.ip = ip->ip; 
+	pd->sockets[(uint)socket].local_port = port;
 
 	port = 0;
-	if(!_read_register_(Sn_MODE_REGISTER(s->socket_number), (uint8_t*)&port)) {
+	if(!_read_register_(pd->spi, pd->cs_gpio, Sn_MODE_REGISTER((uint)socket), (uint8_t*)&port)) {
 		return false;
 	}
 
@@ -2384,13 +2368,13 @@ bool _bind_(SOCKET* socket, const struct IPv4_ADDRESS_s* ip, uint16_t port) {
 		break;
 
 		case Sn_MODE_REGISTER_UDP:
-			if(!_write_register_(Sn_COMMAND_REGISTER(s->socket_number), Sn_COMMAND_REGISTER_OPEN)) {
+			if(!_write_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), Sn_COMMAND_REGISTER_OPEN)) {
 				return false;
 			}
 
 			port = 0;
 			do {
-				if(!_read_register_(Sn_COMMAND_REGISTER(s->socket_number), (uint8_t*)&port)) {
+				if(!_read_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), (uint8_t*)&port)) {
 					return false;
 				}
 			} while(port != 0);
@@ -2401,12 +2385,65 @@ bool _bind_(SOCKET* socket, const struct IPv4_ADDRESS_s* ip, uint16_t port) {
 
 		case Sn_MODE_REGISTER_CLOSE:
 		break;
+
+		default:
+			hard_assert("UNKNOWN MODE\n");
+		break;
 	}
 
 	return true;
 }
 
-bool _listen_(SOCKET* socket) {
+bool _connect_ (SOCKET socket, const struct IPv4_ADDRESS_s* ip, uint16_t port, uint32_t timeout_ms, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
+
+	if (port == 0) {
+		s->error = SOCKET_ERROR_PORT;
+		return false;
+	}
+
+	if(_write_register_(pd->spi, pd->cs_gpio, Sn_DESTINATION_PORT_REGISTER((uint)socket), (uint8_t)(port >> 8)) != 1) {
+		return false;
+	}
+
+	if(_write_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_DESTINATION_PORT_REGISTER((uint)socket), 1), (uint8_t)port) != 1) {
+		return false;
+	}
+	s->remote_port = port;
+
+/*
+	if (getSn_MODE_REGISTER(sn) == Sn_MR_TCP4) {
+		return SOCKERR_SOCKMODE;
+	}
+	setSn_DIPR(sn, addr);
+	//setSn_DPORT(sn,port); //TODO::need verify:LINAN 20250421
+	setSn_CR(sn, Sn_CR_CONNECT);
+
+	while (getSn_CR(sn));
+	if (sock_io_mode & (1 << sn)) {
+		return SOCK_BUSY;
+	}
+	while (getSn_SR(sn) != SOCK_ESTABLISHED) {
+		if (getSn_IR(sn) & Sn_IR_TIMEOUT) {
+			setSn_IR(sn, Sn_IR_TIMEOUT);
+			return SOCKERR_TIMEOUT;
+		}
+
+		if (getSn_SR(sn) == SOCK_CLOSED) {
+			return SOCKERR_SOCKCLOSED;
+		}
+	}
+
+	return SOCK_OK;
+}
+
+
+*/
+	return true;
+}
+
+bool _listen_(SOCKET socket) {
 	/*
 	CHECK_SOCKNUM();
 	CHECK_TCPMODE();
@@ -2420,12 +2457,13 @@ bool _listen_(SOCKET* socket) {
 	return true;
 }
 
-bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uint16_t* actual_size, struct IPv4_ADDRESS_s* client_address, uint16_t* client_port) {
-	static uint8_t head[8] = { 0 };
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _recvfrom_(SOCKET socket, uint8_t* buffer, uint16_t buffer_size, uint16_t* actual_size, struct IPv4_ADDRESS_s* client_address, uint16_t* client_port, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
+	uint8_t head[8] = { 0 };
 	uint8_t mode = 0;
 
-	if(!_rx_buffer_size_(socket, actual_size)) {
+	if(!_rx_buffer_size_(socket, actual_size, private_data)) {
 		return false;
 	}
 
@@ -2434,7 +2472,7 @@ bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uin
 		return true;
 	}
 
-	if(!_read_register_(Sn_MODE_REGISTER(s->socket_number), &mode)) {
+	if(!_read_register_(pd->spi, pd->cs_gpio, Sn_MODE_REGISTER((uint)socket), &mode)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
@@ -2452,7 +2490,7 @@ bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uin
 
 	switch (mode & 0x07) {
 		case Sn_MODE_REGISTER_UDP: {
-			if(!__read__(s->socket_number, head, 8, 0)) {
+			if(!__read__(pd->spi, pd->cs_gpio, (uint)socket, head, 8, 0)) {
 				s->error = SOCKET_ERROR_BUS_REGISTER;
 				return false;
 			}
@@ -2480,7 +2518,7 @@ bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uin
 		}
 
 		case Sn_MODE_REGISTER_IPRAW: {
-			if(!__read__(s->socket_number, head, 6, 0)) {
+			if(!__read__(pd->spi, pd->cs_gpio, (uint)socket, head, 6, 0)) {
 				s->error = SOCKET_ERROR_BUS_REGISTER;
 				return false;
 			}
@@ -2505,30 +2543,30 @@ bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uin
 		case Sn_MODE_REGISTER_MACRAW: break;
 	}
 
-	if(!_write_register_(Sn_COMMAND_REGISTER(s->socket_number), Sn_COMMAND_REGISTER_RECEIVE)) {
+	if(!_write_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), Sn_COMMAND_REGISTER_RECEIVE)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
 
 	do {
-		if(!_read_register_(Sn_COMMAND_REGISTER(s->socket_number), &mode)) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), &mode)) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 	} while(mode);
 
-	if(!__read__(s->socket_number, buffer, *actual_size, actual_size)) {
+	if(!__read__(pd->spi, pd->cs_gpio, (uint)socket, buffer, *actual_size, actual_size)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
 
-	if(!_write_register_(Sn_COMMAND_REGISTER(s->socket_number), Sn_COMMAND_REGISTER_RECEIVE)) {
+	if(!_write_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), Sn_COMMAND_REGISTER_RECEIVE)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
 
 	do {
-		if(!_read_register_(Sn_COMMAND_REGISTER(s->socket_number), &mode)) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), &mode)) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
@@ -2538,14 +2576,15 @@ bool _recvfrom_(const SOCKET* socket, uint8_t* buffer, uint16_t buffer_size, uin
 	return true;
 }
 
-bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const struct IPv4_ADDRESS_s* address, uint16_t port) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _sendto_(SOCKET socket, const uint8_t* buffer, uint16_t size, const struct IPv4_ADDRESS_s* address, uint16_t port, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
 
-	++stats.total_packet_attempt_send_count;
-	uint64_t start = time_us_64();
+    ++stats.total_packet_attempt_send_count;
+    uint64_t start = time_us_64();
 
 	uint16_t max_size = 0;
-	if(!_tx_buffer_max_size_(socket, &max_size)) {
+	if(!_tx_buffer_max_size_(socket, &max_size, private_data)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
@@ -2556,7 +2595,7 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 	}
 
 	uint8_t mode = 0;
-	if(!_read_register_(Sn_MODE_REGISTER(s->socket_number), &mode)) {
+	if(!_read_register_(pd->spi, pd->cs_gpio, Sn_MODE_REGISTER((uint)socket), &mode)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
@@ -2568,21 +2607,18 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 				return false;
 			}
 
-			if (port != _current_port)
-			{
-				if(!_write_register_(Sn_DESTINATION_PORT_REGISTER(s->socket_number), *(((uint8_t*)&port) + 1))) {
+			if(s->remote_port != port) {
+				if(!_write_register_(pd->spi, pd->cs_gpio, Sn_DESTINATION_PORT_REGISTER((uint)socket), *(((uint8_t*)&port) + 1))) {
 					s->error = SOCKET_ERROR_BUS_REGISTER;
 					return false;
 				}
 
-				if(!_write_register_(OFFSET_INC(Sn_DESTINATION_PORT_REGISTER(s->socket_number), 1), *(((uint8_t*)&port) + 0))) {
+				if(!_write_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_DESTINATION_PORT_REGISTER((uint)socket), 1), *(((uint8_t*)&port) + 0))) {
 					s->error = SOCKET_ERROR_BUS_REGISTER;
 					return false;
 				}
-
-				_current_port = port;
+				s->remote_port = port;
 			}
-			s->remote_port = port;
 		//так, тут немає break, так повинно бути
 
 		case Sn_MODE_REGISTER_IPRAW:
@@ -2591,15 +2627,13 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 				return false;
 			}
 
-			if (address->ip != _current_ip) {
-				if(!_write_register_buffer_(Sn_DESTINATION_IP_REGISTER(s->socket_number), (uint8_t*)&address->ip, 4)) {
+			if(s->remote_address.ip != address->ip) {
+				if(!_write_register_buffer_(pd->spi, pd->cs_gpio, Sn_DESTINATION_IP_REGISTER((uint)socket), (uint8_t*)&address->ip, 4)) {
 					s->error = SOCKET_ERROR_BUS_DATA;
 					return false;
 				}
-
-				_current_ip = address->ip;
+				s->remote_address.ip = address->ip;
 			}
-			s->remote_address.ip = address->ip;
 		//тут також немає
 
 		case Sn_MODE_REGISTER_MACRAW:
@@ -2610,10 +2644,10 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 			return false;
 	}
 
-	stats.total_packet_prepare_micros += time_us_64() - start;
-	start = time_us_64();
+    stats.total_packet_prepare_micros += time_us_64() - start;
+    start = time_us_64();
 
-	if(!_tx_buffer_free_size_(socket, &max_size)) {
+	if(!_tx_buffer_free_size_(socket, &max_size, private_data)) {
 		return false;
 	}
 
@@ -2622,41 +2656,42 @@ bool _sendto_(const SOCKET* socket, const uint8_t* buffer, uint16_t size, const 
 		return false;
 	}
 
-	stats.total_free_tx_micros += time_us_64() - start;
-	start = time_us_64();
+    stats.total_free_tx_micros += time_us_64() - start;
+    start = time_us_64();
 
-	if(!__write__(s->socket_number, buffer, size)) {
+	if(!__write__(pd->spi, pd->cs_gpio, (uint)socket, buffer, size)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
 
-	stats.total_spi_send_micros += time_us_64() - start;
-	++stats.total_spi_send_count;
+    stats.total_spi_send_micros += time_us_64() - start;
+    ++stats.total_spi_send_count;
 
-	start = time_us_64();
+    start = time_us_64();
 
-	if(!_write_register_(Sn_COMMAND_REGISTER(s->socket_number), Sn_COMMAND_REGISTER_SEND)) {
+	if(!_write_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), Sn_COMMAND_REGISTER_SEND)) {
 		s->error = SOCKET_ERROR_BUS_REGISTER;
 		return false;
 	}
 
 	do {
-		if(!_read_register_(Sn_COMMAND_REGISTER(s->socket_number), &mode)) {
+		if(!_read_register_(pd->spi, pd->cs_gpio, Sn_COMMAND_REGISTER((uint)socket), &mode)) {
 			s->error = SOCKET_ERROR_BUS_REGISTER;
 			return false;
 		}
 	} while(mode);
 
-	stats.total_packet_finalize_micros += time_us_64() - start;
+    stats.total_packet_finalize_micros += time_us_64() - start;
 
 	s->error = SOCKET_ERROR_OK;
 	return true;
 }
 
-bool _state_(const SOCKET* socket, socket_state_t* state) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _state_(SOCKET socket, socket_state_t* state, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
 	uint8_t data = { 255 };
-	if(_read_register_(Sn_STATUS_REGISTER(s->socket_number), &data) != 1) {
+	if(_read_register_(pd->spi, pd->cs_gpio, Sn_STATUS_REGISTER((uint)socket), &data) != 1) {
 		return false;
 	}
 
@@ -2664,8 +2699,9 @@ bool _state_(const SOCKET* socket, socket_state_t* state) {
 	return true;
 }
 
-bool _local_info_(const SOCKET* socket, struct IPv4_ADDRESS_s* ip,  uint16_t* port) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _local_info_(SOCKET socket, struct IPv4_ADDRESS_s* ip,  uint16_t* port, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
 	if(ip) {
 		if(!s->local_address.ip) {
 			return false;
@@ -2683,8 +2719,9 @@ bool _local_info_(const SOCKET* socket, struct IPv4_ADDRESS_s* ip,  uint16_t* po
 	return true;
 }
 
-bool _remote_info_(const SOCKET* socket, struct IPv4_ADDRESS_s* ip,  uint16_t* port) {
-	struct SOCKET_s* s = (struct SOCKET_s*)*socket;
+bool _remote_info_(SOCKET socket, struct IPv4_ADDRESS_s* ip,  uint16_t* port, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
 	if(ip) {
 		if(!s->remote_address.ip) {
 			return false;
@@ -2702,22 +2739,31 @@ bool _remote_info_(const SOCKET* socket, struct IPv4_ADDRESS_s* ip,  uint16_t* p
 	return true;
 }
 
-bool w5500_network_init(struct ETHERNET_INTERFACE_s* interface, spi_inst_t* spi,  uint cs_gpio, uint reset_gpio) {
-	_spi = spi;
+bool _is_initialized_(void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	return pd->spi != NULL;
+}
 
-	_reset_gpio = reset_gpio;
-	gpio_init(_reset_gpio);
-	gpio_set_dir(_reset_gpio, GPIO_OUT);
-	gpio_put(_reset_gpio, true);
-
-	_cs_gpio = cs_gpio;
-	gpio_init(_cs_gpio);
-	gpio_set_dir(_cs_gpio, GPIO_OUT);
-	gpio_put(_cs_gpio, true);
-
+bool _w5500_network_init_(struct ETHERNET_INTERFACE_s* interface, spi_inst_t* spi, uint cs_gpio, uint reset_gpio, w5500_reset_hw_func reset_func) {
 	memset(interface, 0, sizeof(struct ETHERNET_INTERFACE_s));
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)interface->private_data;
 
-	interface->reset_hw = _reset_hw_;
+	pd->spi = spi;
+	pd->cs_gpio = cs_gpio;
+	pd->reset_gpio = reset_gpio;
+	pd->reset_func = reset_func;
+
+	gpio_init(pd->cs_gpio);
+	gpio_set_dir(pd->cs_gpio, GPIO_OUT);
+	gpio_put(pd->cs_gpio, true);
+
+	if(!reset_func) {
+		gpio_init(pd->reset_gpio);
+		gpio_set_dir(pd->reset_gpio, GPIO_OUT);
+		gpio_put(pd->reset_gpio, true);
+	}
+
+	interface->reset_sw = _reset_hw_;
 	interface->reset_sw = _reset_sw_;
 
 	interface->set_ipv4_address = _set_ipv4_address_;
@@ -2748,22 +2794,37 @@ bool w5500_network_init(struct ETHERNET_INTERFACE_s* interface, spi_inst_t* spi,
 	interface->socket_local_ipv4_info = _local_info_;
 	interface->socket_remote_ipv4_info = _remote_info_;
 
+	interface->is_initialized = _is_initialized_;
+
 	//interface->socket_rx_fifo_length = _get_received_data_size_; 
 
-	_reset_hw_();
-	_reset_sw_();
+	_reset_hw_(pd);
+	_reset_sw_(pd);
 
 	for(uint8_t i = 0; i < 8; i++) {
-		_sockets[i].socket_number = i;
-		_sockets[i].rx_buffer_max_size = 2 * 1024;
-		_write_register_(Sn_RECEIVE_MAX_BUFFER_SIZE_REGISTER(i), 2);
-		_sockets[i].tx_buffer_max_size = 2 * 1024;
-		_write_register_(Sn_TRANSMIT_MAX_BUFFER_SIZE_REGISTER(i), 2);
+		if(_write_register_(pd->spi, pd->cs_gpio, Sn_RECEIVE_MAX_BUFFER_SIZE_REGISTER(i), 2)) {
+			pd->sockets[i].rx_buffer_max_size = 2 * 1024;
+		}
+
+		if(_write_register_(pd->spi, pd->cs_gpio, Sn_TRANSMIT_MAX_BUFFER_SIZE_REGISTER(i), 2)) {
+			pd->sockets[i].tx_buffer_max_size = 2 * 1024;
+		}
 	}
 
 	return true;
 }
 
+bool w5500_network_init_with_reset_gpio(struct ETHERNET_INTERFACE_s* interface, spi_inst_t* spi, uint cs_gpio, uint reset_gpio) {
+	return _w5500_network_init_(interface, spi, cs_gpio, reset_gpio, NULL);
+ }
+
+bool w5500_network_init_with_reset_func(struct ETHERNET_INTERFACE_s* interface, spi_inst_t* spi, uint cs_gpio, w5500_reset_hw_func reset_func) {
+	if(!reset_func) {
+		return false;
+	}
+
+	return _w5500_network_init_(interface, spi, cs_gpio, 0, reset_func);
+}
 
 /*
 timestamp :13
