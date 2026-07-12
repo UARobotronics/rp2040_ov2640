@@ -39,10 +39,9 @@ static struct CONFIG_s _config = {
 	.port = 6666,
 };
 
-static struct IPv4_ADDRESS_s dst_address = {.a = 192, .b = 168, .c = 50, .d = 12};
-static uint16_t dst_port = 8080;
-static uint16_t max_packet_size = 1700;
-// static uint16_t max_packet_size = 704;
+static struct IPv4_ADDRESS_s dst_address;
+static volatile uint16_t dst_port;
+static uint16_t max_packet_size = 1000;
 
 static SOCKET socket = {0};
 
@@ -100,13 +99,33 @@ bool ethernet_init()
 bool ethernet_send_udp(uint8_t* data, uint32_t data_len)
 {
 	uint32_t shift = 0;
+	bool sent = true;
 	while (shift < data_len)
 	{
 		uint32_t left_len = data_len - shift;
 		uint16_t size = (left_len < max_packet_size) ? left_len : max_packet_size;
-		network_socket_sendto(&_ethernetInterface, socket, data+shift, size, &dst_address, dst_port);
+		sent &= network_socket_sendto(&_ethernetInterface, socket, data+shift, size, &dst_address, dst_port);
 		//sleep_ms(5);
 
 		shift += size;
 	}
+
+	return sent;
+}
+
+uint16_t ethernet_receive_udp(uint8_t* data)
+{
+	uint16_t size;
+	struct IPv4_ADDRESS_s src_address;
+	uint16_t src_port;
+
+	network_socket_recvfrom(&_ethernetInterface, socket, data, max_packet_size, &size, &src_address, &src_port);
+	
+	if (size > 0)
+	{
+		dst_address = src_address;
+		dst_port = src_port;
+	}
+
+	return size;
 }

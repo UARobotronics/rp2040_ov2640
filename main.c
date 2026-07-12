@@ -11,6 +11,7 @@
 #include "network/drivers/w5500.h"
 #include "network/network.h"
 
+#include "command.h"
 #include "common.h"
 #include "ethernet.h"
 #include "misc.h"
@@ -29,6 +30,13 @@ enum color_depth_e
 	COLOR_DEPTH_7_BYTES = 1,
 	COLOR_DEPTH_6_BYTES = 2,
 	COLOR_DEPTH_5_BYTES = 3,
+};
+
+enum processing_state_e
+{
+	STATE_WAIT_FOR_CLIENT = 0,
+	STATE_SEND_ACK_TO_CLIENT = 1,
+	STATE_STREAM_VIDEO = 2,
 };
 
 // typedef struct __attribute__((packed))
@@ -85,17 +93,18 @@ process_data_t process_buffers[BUFFERS_COUNT] = {
 	{.length = 0, .data = {}}
 };
 
+// Current state variables
 uint8_t* frame_ready_buf = NULL;
 
 volatile uint16_t current_row = 0;
 uint16_t current_frame = 0;
+enum processing_state_e state = STATE_WAIT_FOR_CLIENT;
 
 // Video stream settings
 enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
 enum pixel_format_e pixel_format = PIXEL_FORMAT_YUV;
-uint8_t pixel_encoding_flags = 0;
+enum color_depth_e color_depth = COLOR_DEPTH_5_BYTES;
 uint8_t skip_rows = 0;
-enum color_depth_e e_color_depth = COLOR_DEPTH_5_BYTES;
 bool full_frame_capturing = false;
 
 volatile stats_t stats;
@@ -179,8 +188,6 @@ uint16_t prepare_yuv_packet(const uint8_t* in_buf, uint16_t in_len, uint8_t* out
 		//    2 - 7 bits of color data
 		//    3 - 8 bits of color data
 
-		uint8_t color_depth = e_color_depth;
-
 		// Create packet header first
 		// 13 bits for frame number
 		out_buf[0] = (current_frame >> 5) & 0xFF;
@@ -204,7 +211,7 @@ uint16_t prepare_yuv_packet(const uint8_t* in_buf, uint16_t in_len, uint8_t* out
 	uint32_t val = in_buf[0];
 	uint32_t count = 0;
 	uint8_t tmp;
-	uint8_t max_count = max_pixel_count_by_color_depth(e_color_depth);
+	uint8_t max_count = max_pixel_count_by_color_depth(color_depth);
 
 	for (int i = 1; i < in_len; i += 1) {
 		tmp = in_buf[i];
@@ -252,6 +259,37 @@ void test_ethernet_transfer()
 
 	PRINTF("Sent %llu bytes of data\n", bytes_sent);
 	PRINTF("Total time in micros: %llu\n", end - start);
+}
+
+void process_communication()
+{
+	uint8_t buf_command[MAX_COMMAND_LENGTH];
+	uint16_t size;
+
+	switch (state)
+	{
+		case STATE_WAIT_FOR_CLIENT :
+			size = receive_data(buf_command);
+
+			if (size != 1)
+				return;
+
+			if (buf_command[0] == CMD_CONNECT_TO_SERVER)
+				state = STATE_SEND_ACK_TO_CLIENT;
+
+			break;
+		case STATE_SEND_ACK_TO_CLIENT:
+			buf_command[0] = CMD_SEND_ACK_TO_CLIENT;
+
+			send_data(buf_command, CMD_SEND_ACK_TO_CLIENT_SIZE);
+			sleep_ms(200);
+
+			state = STATE_STREAM_VIDEO;
+
+			break;
+		default:
+			break;
+	}
 }
 
 int main()
@@ -319,21 +357,45 @@ int main()
 	memset(image_buf, 0, sizeof(image_buf));
 	reset_stats(&stats);
 
-	bool do_process = true;
 	absolute_time_t next_frame_time = 0;
 	absolute_time_t last_normal_frame_time = time_us_64();
-
-	// Counters for rolling color depth and skip rows settings
-	uint8_t color_depth_counter = 0;
-	uint8_t skip_rows_counter = 0;
 
 	while (true)
 	{
 		gpio_put(PIN_LED, !gpio_get(PIN_LED));
 
-		if (full_frame_capturing)
+		if (!full_frame_capturing && (gpio_get(config.pin_vsync) == false))
 		{
-			if (do_process)
+			// Period between frames data. No image data is coming now.
+			// Let's do some useful stuff!
+
+			// Underflow is intentional. After first increment current row must become 0.
+			current_row = -1;
+
+			io_rw_32 transfer_count = dma_channel_get_transfer_count(config.dma_channel);
+
+			// Check if frame is fractured and left part of the frame appears
+			// to the right
+			if (transfer_count < FRAME_WIDTH - CRITICAL_FRAME_SHIFT)
+			{
+				if (time_us_64() - last_normal_frame_time > FRACTURED_FRAME_TIME_MS * 1000)
+				{
+					PRINTF("Frame is fractured, resetting DMA channel...\n");
+
+					ov2640_reset_dma_channel(&config);
+					last_normal_frame_time = time_us_64();
+				}
+			}
+			else
+			{
+				last_normal_frame_time = time_us_64();
+			}
+
+			process_communication();
+		}
+		else if (state == STATE_STREAM_VIDEO)
+		{
+			if (full_frame_capturing)
 			{
 				if (time_reached(next_frame_time))
 				{
@@ -359,15 +421,12 @@ int main()
 					// do_process = false;
 				}
 			}
-		}
-		else
-		{
-			if (frame_ready_buf)
+			else
 			{
-				++stats.received_rows;
-
-				if (do_process)
+				if (frame_ready_buf)
 				{
+					++stats.received_rows;
+
 					if (current_row == 0)
 						++current_frame;
 
@@ -427,89 +486,49 @@ int main()
 					frame_ready_buf = NULL;
 				}
 			}
-			else
-			if (gpio_get(config.pin_vsync) == false)
+
+			if (time_us_64() - start_time > 1 * 1000 * 1000)
 			{
-				// Period between frames data. No image data is coming now.
-				// Let's do some useful stuff!
-
-				// Underflow is intentional. After first increment current row must become 0.
-				current_row = -1;
-
-				io_rw_32 transfer_count = dma_channel_get_transfer_count(config.dma_channel);
-
-				// Check if frame is fractured and left part of the frame appears
-				// to the right
-				if (transfer_count < FRAME_WIDTH - CRITICAL_FRAME_SHIFT)
+				if (full_frame_capturing)
 				{
-					if (time_us_64() - last_normal_frame_time > FRACTURED_FRAME_TIME_MS * 1000)
-					{
-						PRINTF("Frame is fractured, resetting DMA channel...\n");
-
-						ov2640_reset_dma_channel(&config);
-						last_normal_frame_time = time_us_64();
-					}
+					PRINTF("FPS: %u\n", frame_count);
 				}
 				else
 				{
-					last_normal_frame_time = time_us_64();
+					uint64_t receive_micros = stats.total_receive_micros / stats.row_count;
+					uint64_t process_micros = stats.total_process_micros / stats.row_count;
+					uint64_t send_len = stats.total_send_len / stats.row_count;
+					uint64_t send_micros = stats.total_send_micros / stats.sent_packets;
+					uint64_t packet_prepare_micros = stats.total_packet_prepare_micros / stats.total_spi_send_count;
+					uint64_t packet_free_tx_micros = stats.total_free_tx_micros / stats.total_spi_send_count;
+					uint64_t spi_send_micros = stats.total_spi_send_micros / stats.total_spi_send_count;
+					uint64_t core_spi_send_micros = stats.total_core_spi_send_micros / stats.total_spi_send_count;
+					uint64_t packet_finalize_micros = stats.total_packet_finalize_micros / stats.total_spi_send_count;
+
+					PRINTF("FPS: %u\n", stats.received_rows / FRAME_HEIGHT);
+					PRINTF("Received rows from camera: %u\n", stats.received_rows);
+					PRINTF("Missed rows: %u\n", missed_rows);
+					PRINTF("Sent packets: %u\n", stats.sent_packets);
+					PRINTF("Retrieved single row data in %llu micros\n", receive_micros);
+					PRINTF("Processed single row data in %llu micros\n", process_micros);
+					PRINTF("\n");
+					PRINTF("Sent single packet data in %llu micros\n", send_micros);
+					PRINTF("Single packet prepare in %llu micros\n", packet_prepare_micros);
+					PRINTF("Single packet free TX buffer in %llu micros\n", packet_free_tx_micros);
+					PRINTF("Single packet data SPI transfer done in %llu micros\n", spi_send_micros);
+					PRINTF("Single packet data core SPI transfer done in %llu micros\n", core_spi_send_micros);
+					PRINTF("Single packet finalize in %llu micros\n", packet_finalize_micros);
+					PRINTF("\n");
+					PRINTF("Average udp packet length is %llu bytes\n", send_len);
+					PRINTF("Packet count (attempt/sending) is %u\\%u\n", stats.total_packet_attempt_send_count, stats.total_spi_send_count);
 				}
+
+				reset_stats(&stats);
+
+				start_time = time_us_64();
+				frame_count = 0;
+				missed_rows = 0;
 			}
-		}
-
-		if (time_us_64() - start_time > 1 * 1000 * 1000)
-		{
-			if (color_depth_counter++ >= 9)
-			{
-				color_depth_counter = 0;
-				//e_color_depth = get_next_color_depth(e_color_depth);
-			}
-
-			if (skip_rows_counter++ >= 9)
-			{
-				skip_rows_counter = 0;
-				// skip_rows = (skip_rows + 1) % 2;
-			}
-
-			if (full_frame_capturing)
-			{
-				PRINTF("FPS: %u\n", frame_count);
-			}
-			else
-			{
-				uint64_t receive_micros = stats.total_receive_micros / stats.row_count;
-				uint64_t process_micros = stats.total_process_micros / stats.row_count;
-				uint64_t send_len = stats.total_send_len / stats.row_count;
-				uint64_t send_micros = stats.total_send_micros / stats.sent_packets;
-				uint64_t packet_prepare_micros = stats.total_packet_prepare_micros / stats.total_spi_send_count;
-				uint64_t packet_free_tx_micros = stats.total_free_tx_micros / stats.total_spi_send_count;
-				uint64_t spi_send_micros = stats.total_spi_send_micros / stats.total_spi_send_count;
-				uint64_t core_spi_send_micros = stats.total_core_spi_send_micros / stats.total_spi_send_count;
-				uint64_t packet_finalize_micros = stats.total_packet_finalize_micros / stats.total_spi_send_count;
-
-				PRINTF("FPS: %u\n", stats.received_rows / FRAME_HEIGHT);
-				PRINTF("Received rows from camera: %u\n", stats.received_rows);
-				PRINTF("Missed rows: %u\n", missed_rows);
-				PRINTF("Sent packets: %u\n", stats.sent_packets);
-				PRINTF("Retrieved single row data in %llu micros\n", receive_micros);
-				PRINTF("Processed single row data in %llu micros\n", process_micros);
-				PRINTF("\n");
-				PRINTF("Sent single packet data in %llu micros\n", send_micros);
-				PRINTF("Single packet prepare in %llu micros\n", packet_prepare_micros);
-				PRINTF("Single packet free TX buffer in %llu micros\n", packet_free_tx_micros);
-				PRINTF("Single packet data SPI transfer done in %llu micros\n", spi_send_micros);
-				PRINTF("Single packet data core SPI transfer done in %llu micros\n", core_spi_send_micros);
-				PRINTF("Single packet finalize in %llu micros\n", packet_finalize_micros);
-				PRINTF("\n");
-				PRINTF("Average udp packet length is %llu bytes\n", send_len);
-				PRINTF("Packet count (attempt/sending) is %u\\%u\n", stats.total_packet_attempt_send_count, stats.total_spi_send_count);
-			}
-
-			reset_stats(&stats);
-
-			start_time = time_us_64();
-			frame_count = 0;
-			missed_rows = 0;
 		}
 	}
 

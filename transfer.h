@@ -11,3 +11,4 @@ enum transfer_type_s {
 };
 
 void send_data(uint8_t* data, uint32_t data_len);
+uint16_t receive_data(uint8_t* data);
