@@ -1926,8 +1926,10 @@
 struct __attribute__((packed)) SOCKET_s {
 	struct IPv4_ADDRESS_s local_address;
 	struct IPv4_ADDRESS_s remote_address;
+	struct IPv4_ADDRESS_s last_send_remote_address;
 	uint16_t local_port;
 	uint16_t remote_port;
+	uint16_t last_send_remote_port;
 	uint8_t flags;
 	uint16_t tx_buffer_max_size;
 	uint16_t rx_buffer_max_size;
@@ -2355,7 +2357,7 @@ bool _bind_(SOCKET socket, const struct IPv4_ADDRESS_s* ip, uint16_t port, void*
 		return false;
 	}
 
-	pd->sockets[(uint)socket].local_address.ip = ip->ip; 
+	pd->sockets[(uint)socket].local_address.ip = ip->ip;
 	pd->sockets[(uint)socket].local_port = port;
 
 	port = 0;
@@ -2607,7 +2609,7 @@ bool _sendto_(SOCKET socket, const uint8_t* buffer, uint16_t size, const struct 
 				return false;
 			}
 
-			if(s->remote_port != port) {
+			if(s->last_send_remote_port != port) {
 				if(!_write_register_(pd->spi, pd->cs_gpio, Sn_DESTINATION_PORT_REGISTER((uint)socket), *(((uint8_t*)&port) + 1))) {
 					s->error = SOCKET_ERROR_BUS_REGISTER;
 					return false;
@@ -2618,6 +2620,7 @@ bool _sendto_(SOCKET socket, const uint8_t* buffer, uint16_t size, const struct 
 					return false;
 				}
 				s->remote_port = port;
+				s->last_send_remote_port = port;
 			}
 		//так, тут немає break, так повинно бути
 
@@ -2627,12 +2630,13 @@ bool _sendto_(SOCKET socket, const uint8_t* buffer, uint16_t size, const struct 
 				return false;
 			}
 
-			if(s->remote_address.ip != address->ip) {
+			if(s->last_send_remote_address.ip != address->ip) {
 				if(!_write_register_buffer_(pd->spi, pd->cs_gpio, Sn_DESTINATION_IP_REGISTER((uint)socket), (uint8_t*)&address->ip, 4)) {
 					s->error = SOCKET_ERROR_BUS_DATA;
 					return false;
 				}
 				s->remote_address.ip = address->ip;
+				s->last_send_remote_address.ip = address->ip;
 			}
 		//тут також немає
 
