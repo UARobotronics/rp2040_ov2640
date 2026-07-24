@@ -24,7 +24,7 @@ project(rp2040_ov2640)
 
 pico_sdk_init()
 
-add_executable(firmware
+add_executable(rp2040_ov2640
 	ethernet.c
 	main.c
 	ov2640.c
@@ -33,9 +33,9 @@ add_executable(firmware
     network/drivers/w5500.c
 )
 
-pico_generate_pio_header(firmware ${CMAKE_CURRENT_LIST_DIR}/image.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image.pio)
 
-target_link_libraries(firmware
+target_link_libraries(rp2040_ov2640
 	pico_multicore
 	pico_stdlib
 	hardware_dma
@@ -45,11 +45,11 @@ target_link_libraries(firmware
 	hardware_spi
 )
 
-pico_enable_stdio_usb(firmware 1)
-pico_enable_stdio_uart(firmware 1)
+pico_enable_stdio_usb(rp2040_ov2640 1)
+pico_enable_stdio_uart(rp2040_ov2640 1)
 
-target_include_directories(firmware PRIVATE
+target_include_directories(rp2040_ov2640 PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
 )
 
-pico_add_extra_outputs(firmware)
+pico_add_extra_outputs(rp2040_ov2640)
