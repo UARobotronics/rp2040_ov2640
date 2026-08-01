@@ -10,9 +10,17 @@
 #include "hardware/dma.h"
 #include "hardware/i2c.h"
 #include "hardware/pwm.h"
-#include "image.pio.h"
+#include "image_1_bit.pio.h"
+#include "image_2_bit.pio.h"
+#include "image_3_bit.pio.h"
+#include "image_4_bit.pio.h"
+#include "image_5_bit.pio.h"
+#include "image_6_bit.pio.h"
+#include "image_7_bit.pio.h"
+#include "image_8_bit.pio.h"
 
 #include "common.h"
+#include "misc.h"
 #include "transfer.h"
 
 static const uint8_t OV2640_ADDR = 0x60 >> 1;
@@ -53,8 +61,29 @@ void ov2640_init(ov2640_config *config)
 	// ov2640_reg_write(config, 0xDA, (ov2640_reg_read(config, 0xDA) & 0xC) | 0x8);
 
 	// Enable image RX PIO
-	uint offset = pio_add_program(config->pio, &image_program);
-	image_program_init(config->pio, config->pio_sm, offset, config->pin_y2_pio_base);
+	uint offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_1_BITS), &image_1_bit_program);
+	image_1_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_1_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_1_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_2_BITS), &image_2_bit_program);
+	image_2_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_2_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_2_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_3_BITS), &image_3_bit_program);
+	image_3_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_3_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_3_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_4_BITS), &image_4_bit_program);
+	image_4_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_4_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_4_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_5_BITS), &image_5_bit_program);
+	image_5_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_5_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_5_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_6_BITS), &image_6_bit_program);
+	image_6_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_6_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_6_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_7_BITS), &image_7_bit_program);
+	image_7_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_7_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_7_BITS), offset, config->pin_y2_pio_base);
+	
+	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_8_BITS), &image_8_bit_program);
+	image_8_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_8_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_8_BITS), offset, config->pin_y2_pio_base);
 }
 
 uint8_t dma_channel = 0;
@@ -123,11 +152,7 @@ void ov2640_init_capture(ov2640_config *config, bool full_frame)
 
 	// Wait for vsync rising edge to start frame
 	while (gpio_get(config->pin_vsync) == true);
-	// uint64_t start = time_us_64();
 	// while (gpio_get(config->pin_vsync) == false);
-	// uint64_t end = time_us_64();
-
-	// PRINTF("VSYNC has been low for %llu micros\n", end - start);
 
 	dma_channel_start(config->dma_channel);
 
@@ -135,23 +160,40 @@ void ov2640_init_capture(ov2640_config *config, bool full_frame)
 	{
 		dma_channel_wait_for_finish_blocking(config->dma_channel);
 	}
-	else
-	{
-		//dma_channel_wait_for_finish_blocking(config->dma_channel);
-	}
 }
 
-void ov2640_reset_dma_channel(ov2640_config *config)
+void ov2640_stop_dma_channel(ov2640_config *config)
 {
 	irq_set_enabled(DMA_IRQ_0, false);
 	dma_channel_abort(config->dma_channel);
 
 	dma_channel_acknowledge_irq0(config->dma_channel);
-	dma_channel_set_transfer_count(config->dma_channel, config->frame_buf_size, false);
+}
 
+void ov2640_restart_dma_channel(ov2640_config *config)
+{
+	ov2640_stop_dma_channel(config);
+
+	dma_channel_set_transfer_count(config->dma_channel, config->frame_buf_size, false);
 	irq_set_enabled(DMA_IRQ_0, true);
 
 	dma_channel_start(config->dma_channel);
+}
+
+void ov2640_switch_color_depth(ov2640_config* config, volatile enum color_depth_e* cur_depth, enum color_depth_e new_depth)
+{
+	if ((new_depth < COLOR_DEPTH_LOWEST) || (new_depth > COLOR_DEPTH_HIGHEST))
+		return;
+
+	*cur_depth = new_depth;
+
+	ov2640_stop_dma_channel(config);
+
+	config->pio = get_pio_by_color_depth(new_depth);
+	config->pio_sm = get_pio_sm_by_color_depth(new_depth);
+	config->dma_channel = get_dma_channel_by_color_depth(new_depth);
+
+	ov2640_init_capture(config, false);
 }
 
 void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value)

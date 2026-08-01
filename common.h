@@ -11,8 +11,23 @@
 #define CHUNK_SIZE FRAME_WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
 #define BUFFERS_COUNT 4
 
-// #define PRINTF(...) printf(__VA_ARGS__)
-#define PRINTF(...)
+#define PRINTF(...) printf(__VA_ARGS__)
+// #define PRINTF(...)
+
+enum color_depth_e
+{
+	COLOR_DEPTH_LOWEST = 0,
+	COLOR_DEPTH_8_BITS = 0,
+	COLOR_DEPTH_7_BITS = 1,
+	COLOR_DEPTH_6_BITS = 2,
+	COLOR_DEPTH_5_BITS = 3,
+	COLOR_DEPTH_4_BITS = 4,
+	COLOR_DEPTH_3_BITS = 5,
+	COLOR_DEPTH_2_BITS = 6,
+	COLOR_DEPTH_1_BITS = 7,
+
+	COLOR_DEPTH_HIGHEST = 7, // Must be equal to the largest enum value
+};
 
 typedef struct
 {
@@ -25,9 +40,11 @@ typedef struct
 	uint16_t total_spi_send_count;
 	uint16_t total_packet_attempt_send_count;
 	uint64_t total_receive_micros;
+	uint64_t total_process_communication_micros;
 	uint64_t total_process_micros;
 	uint64_t total_send_len;
 	uint64_t row_count;
+	uint64_t frame_count;
     uint64_t received_rows;
     uint64_t sent_packets;
 } stats_t;

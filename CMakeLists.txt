@@ -27,13 +27,21 @@ pico_sdk_init()
 add_executable(rp2040_ov2640
 	ethernet.c
 	main.c
+	misc.c
 	ov2640.c
 	transfer.c
     network/network.c
     network/drivers/w5500.c
 )
 
-pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_1_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_2_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_3_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_4_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_5_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_6_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_7_bit.pio)
+pico_generate_pio_header(rp2040_ov2640 ${CMAKE_CURRENT_LIST_DIR}/image_8_bit.pio)
 
 target_link_libraries(rp2040_ov2640
 	pico_multicore

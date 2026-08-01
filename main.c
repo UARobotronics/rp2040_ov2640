@@ -3,6 +3,7 @@
 #include "tusb.h"
 
 #include "pico/multicore.h"
+#include "pico/mutex.h"
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "hardware/clocks.h"
@@ -22,14 +23,6 @@ enum pixel_format_e
 {
 	PIXEL_FORMAT_RGB,
 	PIXEL_FORMAT_YUV,
-};
-
-enum color_depth_e
-{
-	COLOR_DEPTH_8_BYTES = 0,
-	COLOR_DEPTH_7_BYTES = 1,
-	COLOR_DEPTH_6_BYTES = 2,
-	COLOR_DEPTH_5_BYTES = 3,
 };
 
 enum processing_state_e
@@ -97,15 +90,19 @@ process_data_t process_buffers[BUFFERS_COUNT] = {
 uint8_t* frame_ready_buf = NULL;
 
 volatile uint16_t current_row = 0;
+mutex_t socket_mutex;
 uint16_t current_frame = 0;
 enum processing_state_e state = STATE_WAIT_FOR_CLIENT;
 
 // Video stream settings
 enum transfer_type_s transfer_type = TRANSFER_ETHERNET;
 enum pixel_format_e pixel_format = PIXEL_FORMAT_YUV;
-enum color_depth_e color_depth = COLOR_DEPTH_5_BYTES;
+enum color_depth_e color_depth = COLOR_DEPTH_5_BITS;
 uint8_t skip_rows = 0;
+uint16_t min_packet_size = 0;
 bool full_frame_capturing = false;
+
+ov2640_config config;
 
 volatile stats_t stats;
 
@@ -120,9 +117,11 @@ void reset_stats(volatile stats_t* st)
 	st->total_spi_send_count = 0;
 	st->total_packet_attempt_send_count = 0;
 	st->total_receive_micros = 0;
+	st->total_process_communication_micros = 0;
 	st->total_process_micros = 0;
 	st->total_send_len = 0;
 	st->row_count = 0;
+	st->frame_count = 0;
     st->received_rows = 0;
     st->sent_packets = 0;
 }
@@ -133,21 +132,15 @@ uint8_t max_pixel_count_by_color_depth(uint8_t color_depth)
 {
 	switch (color_depth)
 	{
-		case COLOR_DEPTH_8_BYTES : return 0;
-		case COLOR_DEPTH_7_BYTES : return 1;
-		case COLOR_DEPTH_6_BYTES : return 3;
-		case COLOR_DEPTH_5_BYTES : return 7;
-	}
-}
-
-enum color_depth_e get_next_color_depth(enum color_depth_e depth)
-{
-	switch (depth)
-	{
-		case COLOR_DEPTH_5_BYTES : return COLOR_DEPTH_6_BYTES;
-		case COLOR_DEPTH_6_BYTES : return COLOR_DEPTH_7_BYTES;
-		case COLOR_DEPTH_7_BYTES : return COLOR_DEPTH_8_BYTES;
-		case COLOR_DEPTH_8_BYTES : return COLOR_DEPTH_5_BYTES;
+		case COLOR_DEPTH_8_BITS : return 0;
+		case COLOR_DEPTH_7_BITS : return 1;
+		case COLOR_DEPTH_6_BITS : return 3;
+		case COLOR_DEPTH_5_BITS : return 7;
+		case COLOR_DEPTH_4_BITS : return 15;
+		case COLOR_DEPTH_3_BITS : return 31;
+		case COLOR_DEPTH_2_BITS : return 63;
+		case COLOR_DEPTH_1_BITS : return 127;
+		default : return 0;
 	}
 }
 
@@ -157,13 +150,17 @@ void core1_main()
 	{
 		if (transfer_data.ready)
 		{
-			transfer_data.ready = false;
-			uint64_t start = time_us_64();
-			send_data(transfer_data.pixel_data, transfer_data.pixel_data_size);
-			uint64_t end = time_us_64();
-			// PRINTF("Sent row data in %llu micros\n", end - start);
-			stats.total_send_micros += end - start;
-			++stats.sent_packets;
+			if (mutex_try_enter(&socket_mutex, NULL))
+			{
+				transfer_data.ready = false;
+				uint64_t start = time_us_64();
+				send_data(transfer_data.pixel_data, transfer_data.pixel_data_size);
+				uint64_t end = time_us_64();
+				// PRINTF("Sent row data in %llu micros\n", end - start);
+				stats.total_send_micros += end - start;
+				++stats.sent_packets;
+				mutex_exit(&socket_mutex);
+			}
 		}
 	}
 }
@@ -196,13 +193,13 @@ uint16_t prepare_yuv_packet(const uint8_t* in_buf, uint16_t in_len, uint8_t* out
 		out_buf[1] |= (current_row >> 8) & 0x7;
 		out_buf[2] = current_row & 0xFF;
 		// 3 bits for skip rows count
-		out_buf[3] |= (skip_rows & 0x7) << 2;
+		out_buf[3] |= (skip_rows & 0x7) << 3;
 		// 2 bits for pixel format
 		// 0 - 8 bits of color data
 		// 1 - 7 bits of color data
 		// 2 - 6 bits of color data
 		// 3 - 5 bits of color data
-		out_buf[3] |= color_depth & 0x3;
+		out_buf[3] |= color_depth & 0x7;
 
 		out_len = 4;
 	}
@@ -263,6 +260,9 @@ void test_ethernet_transfer()
 
 void process_communication()
 {
+    if (!mutex_try_enter(&socket_mutex, NULL))
+        return;
+
 	uint8_t buf_command[MAX_COMMAND_LENGTH];
 	uint16_t size;
 
@@ -271,8 +271,8 @@ void process_communication()
 		case STATE_WAIT_FOR_CLIENT :
 			size = receive_data(buf_command);
 
-			if (size != 1)
-				return;
+			if (size != CMD_CONNECT_TO_SERVER_SIZE)
+				break;
 
 			if (buf_command[0] == CMD_CONNECT_TO_SERVER)
 				state = STATE_SEND_ACK_TO_CLIENT;
@@ -287,9 +287,48 @@ void process_communication()
 			state = STATE_STREAM_VIDEO;
 
 			break;
+		case STATE_STREAM_VIDEO:
+			size = receive_data(buf_command);
+			if (size == 0)
+				break;
+
+			switch (buf_command[0])
+			{
+				case CMD_SEND_COLOR_DEPTH_TO_SERVER:
+					if (size != CMD_SEND_COLOR_DEPTH_TO_SERVER_SIZE)
+						break;
+
+					ov2640_switch_color_depth(&config, &color_depth, buf_command[1]);
+
+					break;
+				case CMD_SEND_SKIP_ROWS_TO_SERVER:
+					if (size != CMD_SEND_SKIP_ROWS_TO_SERVER_SIZE)
+						break;
+
+					skip_rows = buf_command[1];
+
+					break;
+				case CMD_CONNECT_TO_SERVER:
+					if (size != CMD_CONNECT_TO_SERVER_SIZE)
+						break;
+
+					if (buf_command[0] == CMD_CONNECT_TO_SERVER)
+					{
+						ov2640_stop_dma_channel(&config);
+						state = STATE_SEND_ACK_TO_CLIENT;
+					}
+
+					break;
+				default:
+					break;
+			}
+
+			break;
 		default:
 			break;
 	}
+
+	mutex_exit(&socket_mutex);
 }
 
 int main()
@@ -306,7 +345,6 @@ int main()
 	gpio_init(PIN_LED);
 	gpio_set_dir(PIN_LED, GPIO_OUT);
 
-	ov2640_config config;
 	config.sccb = I2C;
 	config.pin_sioc = PIN_CAM_SIOC;
 	config.pin_siod = PIN_CAM_SIOD;
@@ -316,14 +354,16 @@ int main()
 	config.pin_vsync = PIN_CAM_VSYNC;
 	config.pin_y2_pio_base = PIN_CAM_Y2_PIO_BASE;
 
-	config.pio = pio0;
-	config.pio_sm = 0;
+	config.pio = get_pio_by_color_depth(color_depth);
+	config.pio_sm = get_pio_sm_by_color_depth(color_depth);
 
-	config.dma_channel = 0;
+	config.dma_channel = get_dma_channel_by_color_depth(color_depth);
 	config.image_buf = image_buf;
 	config.image_buf_size = sizeof(image_buf);
 	config.frame_buf_size = sizeof(frame_buffers[0]);
 
+	sleep_ms(2000);
+	
 	if (transfer_type == TRANSFER_ETHERNET)
 	{
 		bool success = ethernet_init();
@@ -342,6 +382,7 @@ int main()
 
 	// test_ethernet_transfer();
 
+	mutex_init(&socket_mutex);
 	multicore_launch_core1(core1_main);
 
 	ov2640_init_capture(&config, full_frame_capturing);
@@ -382,7 +423,7 @@ int main()
 				{
 					PRINTF("Frame is fractured, resetting DMA channel...\n");
 
-					ov2640_reset_dma_channel(&config);
+					ov2640_restart_dma_channel(&config);
 					last_normal_frame_time = time_us_64();
 				}
 			}
@@ -391,7 +432,11 @@ int main()
 				last_normal_frame_time = time_us_64();
 			}
 
+			++stats.frame_count;
+			
+			uint64_t start = time_us_64();
 			process_communication();
+			stats.total_process_communication_micros += time_us_64() - start;
 		}
 		else if (state == STATE_STREAM_VIDEO)
 		{
@@ -447,8 +492,7 @@ int main()
 						{
 							case PIXEL_FORMAT_YUV:
 								uint64_t start = time_us_64();
-								bool ready_to_send = true;
-								// bool ready_to_send = (process_buf->length > 500);
+								bool ready_to_send = (process_buf->length >= min_packet_size);
 								bool first_chunk = (process_buf->length == 0);
 								uint16_t len = prepare_yuv_packet(frame_ready_buf, CHUNK_SIZE, &process_buf->data[process_buf->length], first_chunk);
 								process_buf->length += len;
@@ -504,6 +548,7 @@ int main()
 					uint64_t spi_send_micros = stats.total_spi_send_micros / stats.total_spi_send_count;
 					uint64_t core_spi_send_micros = stats.total_core_spi_send_micros / stats.total_spi_send_count;
 					uint64_t packet_finalize_micros = stats.total_packet_finalize_micros / stats.total_spi_send_count;
+					uint64_t process_communication_micros = stats.total_process_communication_micros / stats.frame_count;
 
 					PRINTF("FPS: %u\n", stats.received_rows / FRAME_HEIGHT);
 					PRINTF("Received rows from camera: %u\n", stats.received_rows);
@@ -518,6 +563,7 @@ int main()
 					PRINTF("Single packet data SPI transfer done in %llu micros\n", spi_send_micros);
 					PRINTF("Single packet data core SPI transfer done in %llu micros\n", core_spi_send_micros);
 					PRINTF("Single packet finalize in %llu micros\n", packet_finalize_micros);
+					PRINTF("Network communicatoin handled in %llu micros\n", process_communication_micros);
 					PRINTF("\n");
 					PRINTF("Average udp packet length is %llu bytes\n", send_len);
 					PRINTF("Packet count (attempt/sending) is %u\\%u\n", stats.total_packet_attempt_send_count, stats.total_spi_send_count);

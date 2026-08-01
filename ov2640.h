@@ -1,9 +1,13 @@
 #ifndef OV2640_H
 #define OV2640_H
+
 #include <stdint.h>
+
 #include "pico/stdlib.h"
 #include "hardware/i2c.h"
 #include "hardware/pio.h"
+
+#include "common.h"
 
 typedef struct {
 	i2c_inst_t *sccb;
@@ -29,7 +33,9 @@ typedef struct {
 void ov2640_init(ov2640_config *config);
 
 void ov2640_init_capture(ov2640_config *config, bool full_frame);
-void ov2640_reset_dma_channel(ov2640_config *config);
+void ov2640_stop_dma_channel(ov2640_config *config);
+void ov2640_restart_dma_channel(ov2640_config *config);
+void ov2640_switch_color_depth(ov2640_config* config, volatile enum color_depth_e* cur_depth, enum color_depth_e new_depth);
 
 void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value);
 uint8_t ov2640_reg_read(ov2640_config *config, uint8_t reg);
