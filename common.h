@@ -11,8 +11,8 @@
 #define CHUNK_SIZE FRAME_WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
 #define BUFFERS_COUNT 4
 
-#define PRINTF(...) printf(__VA_ARGS__)
-// #define PRINTF(...)
+// #define PRINTF(...) printf(__VA_ARGS__)
+#define PRINTF(...)
 
 enum color_depth_e
 {

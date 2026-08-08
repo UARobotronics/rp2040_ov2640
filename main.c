@@ -29,7 +29,8 @@ enum processing_state_e
 {
 	STATE_WAIT_FOR_CLIENT = 0,
 	STATE_SEND_ACK_TO_CLIENT = 1,
-	STATE_STREAM_VIDEO = 2,
+	STATE_SEND_STREAM_PARAMS_TO_CLIENT = 2,
+	STATE_STREAM_VIDEO = 3,
 };
 
 // typedef struct __attribute__((packed))
@@ -258,6 +259,26 @@ void test_ethernet_transfer()
 	PRINTF("Total time in micros: %llu\n", end - start);
 }
 
+void send_command_ack_to_client()
+{
+	uint8_t buf[MAX_COMMAND_LENGTH];
+	buf[0] = CMD_SEND_ACK_TO_CLIENT;
+
+	send_data(buf, CMD_SEND_ACK_TO_CLIENT_SIZE);
+}
+
+void send_command_stream_params_to_client()
+{
+	uint8_t buf[MAX_COMMAND_LENGTH];
+	buf[0] = CMD_SEND_STREAM_PARAMS_TO_CLIENT;
+	buf[1] = color_depth;
+	buf[2] = skip_rows;
+	buf[3] = min_packet_size >> 8;
+	buf[4] = min_packet_size & 0xFF;
+
+	send_data(buf, CMD_SEND_STREAM_PARAMS_TO_CLIENT_SIZE);
+}
+
 void process_communication()
 {
     if (!mutex_try_enter(&socket_mutex, NULL))
@@ -279,9 +300,14 @@ void process_communication()
 
 			break;
 		case STATE_SEND_ACK_TO_CLIENT:
-			buf_command[0] = CMD_SEND_ACK_TO_CLIENT;
+			send_command_ack_to_client();
+			sleep_ms(500);
 
-			send_data(buf_command, CMD_SEND_ACK_TO_CLIENT_SIZE);
+			state = STATE_SEND_STREAM_PARAMS_TO_CLIENT;
+
+			break;
+		case STATE_SEND_STREAM_PARAMS_TO_CLIENT:
+			send_command_stream_params_to_client();
 			sleep_ms(200);
 
 			state = STATE_STREAM_VIDEO;
@@ -306,6 +332,13 @@ void process_communication()
 						break;
 
 					skip_rows = buf_command[1];
+
+					break;
+				case CMD_SEND_MIN_PACKET_SIZE_TO_SERVER:
+					if (size != CMD_SEND_MIN_PACKET_SIZE_TO_SERVER_SIZE)
+						break;
+
+					min_packet_size = ((uint16_t)(buf_command[1]) << 8) + buf_command[2];
 
 					break;
 				case CMD_CONNECT_TO_SERVER:
@@ -492,12 +525,11 @@ int main()
 						{
 							case PIXEL_FORMAT_YUV:
 								uint64_t start = time_us_64();
-								bool ready_to_send = (process_buf->length >= min_packet_size);
 								bool first_chunk = (process_buf->length == 0);
 								uint16_t len = prepare_yuv_packet(frame_ready_buf, CHUNK_SIZE, &process_buf->data[process_buf->length], first_chunk);
 								process_buf->length += len;
 
-								if (ready_to_send)
+								if (process_buf->length >= min_packet_size)
 								{
 									active_process_buffer = (active_process_buffer + 1) % BUFFERS_COUNT;
 									process_buffers[active_process_buffer].length = 0;
@@ -566,7 +598,7 @@ int main()
 					PRINTF("Network communicatoin handled in %llu micros\n", process_communication_micros);
 					PRINTF("\n");
 					PRINTF("Average udp packet length is %llu bytes\n", send_len);
-					PRINTF("Packet count (attempt/sending) is %u\\%u\n", stats.total_packet_attempt_send_count, stats.total_spi_send_count);
+					PRINTF("Packet count (attempt\\sending) is %u\\%u\n", stats.total_packet_attempt_send_count, stats.total_spi_send_count);
 				}
 
 				reset_stats(&stats);

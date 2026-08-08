@@ -25,6 +25,17 @@
 
 static const uint8_t OV2640_ADDR = 0x60 >> 1;
 
+uint8_t dma_channel = 0;
+
+extern uint8_t frame_buf1[];
+extern uint8_t frame_buf2[];
+extern uint8_t* transfer_buf;
+extern uint8_t* frame_ready_buf;
+
+extern volatile uint16_t current_row;
+extern volatile uint8_t active_buffer;
+extern uint8_t frame_buffers[BUFFERS_COUNT][CHUNK_SIZE];
+
 void ov2640_init(ov2640_config *config)
 {
 	// XCLK generation (~20.83 MHz)
@@ -85,17 +96,6 @@ void ov2640_init(ov2640_config *config)
 	offset = pio_add_program(get_pio_by_color_depth(COLOR_DEPTH_8_BITS), &image_8_bit_program);
 	image_8_bit_program_init(get_pio_by_color_depth(COLOR_DEPTH_8_BITS), get_pio_sm_by_color_depth(COLOR_DEPTH_8_BITS), offset, config->pin_y2_pio_base);
 }
-
-uint8_t dma_channel = 0;
-
-extern uint8_t frame_buf1[];
-extern uint8_t frame_buf2[];
-extern uint8_t* transfer_buf;
-extern uint8_t* frame_ready_buf;
-
-extern volatile uint16_t current_row;
-extern volatile uint8_t active_buffer;
-extern uint8_t frame_buffers[BUFFERS_COUNT][CHUNK_SIZE];
 
 void frame_buffer_handler()
 {
