@@ -141,6 +141,11 @@ socket_error_t network_socket_last_error(struct ETHERNET_INTERFACE_s* interface,
 	return interface->socket_last_error(socket, interface->private_data);
 }
 
+bool network_socket_set_option(struct ETHERNET_INTERFACE_s* interface, SOCKET socket, socket_option_t option, const void* value) {
+	assert(interface && interface->socket_set_option);
+	return interface->socket_set_option(socket, option, value, interface->private_data);
+}
+
 bool network_is_initialized(struct ETHERNET_INTERFACE_s* interface) {
 	assert(interface && interface->is_initialized);
 	return interface->is_initialized(interface->private_data);

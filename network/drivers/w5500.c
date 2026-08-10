@@ -499,7 +499,7 @@
 	@brief Fragment field value in IP header register(R/W)
 	@details @ref Sn_FRAG configures the FRAG(Fragment field in IP header).
 */
-#define Sn_FRAG(N)         (_W5500_IO_BASE_ + (0x002D << 8) + (SREG_BLOCK(N) << 3))
+#define Sn_FRAGMENTATION(N)         (_W5500_IO_BASE_ + (0x002D << 8) + (SREG_BLOCK(N) << 3))
 
 /**
 	@ingroup Socket_register_group
@@ -1848,17 +1848,6 @@
 */
 #define getSn_RX_WR(sn) (((uint16_t)WIZCHIP_READ(Sn_RX_WR(sn)) << 8) + WIZCHIP_READ(WIZCHIP_OFFSET_INC(Sn_RX_WR(sn),1)))
 
-/**
-	@ingroup Socket_register_access_function
-	@brief Set @ref Sn_FRAG register
-	@param (uint8_t)sn Socket number. It should be <b>0 ~ 7</b>.
-	@param (uint16_t)frag Value to set @ref Sn_FRAG
-	@sa getSn_FRAD()
-*/
-#define setSn_FRAG(sn, frag) { \
-		WIZCHIP_WRITE(Sn_FRAG(sn),  (uint8_t)(frag >>8)); \
-		WIZCHIP_WRITE(WIZCHIP_OFFSET_INC(Sn_FRAG(sn),1), (uint8_t) frag); \
-	}
 
 /**
 	@ingroup Socket_register_access_function
@@ -2743,6 +2732,40 @@ bool _remote_info_(SOCKET socket, struct IPv4_ADDRESS_s* ip,  uint16_t* port, vo
 	return true;
 }
 
+socket_error_t _last_error_(SOCKET socket, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
+	return s->error;
+}
+
+bool _set_option_(SOCKET socket, socket_option_t option, const void* value, void* private_data) {
+	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
+	struct SOCKET_s* s = &pd->sockets[(uint)socket];
+
+	switch (option) {
+		case SOCKET_OPTION_FRAGMENTATION: {
+			if(!_write_register_(pd->spi, pd->cs_gpio, Sn_FRAGMENTATION((uint)socket), (uint8_t)((uint)value >> 8))) {
+				return false;
+			}
+
+			if(!_write_register_(pd->spi, pd->cs_gpio, OFFSET_INC(Sn_FRAGMENTATION((uint)socket), 1), (uint8_t)(uint)value)) {
+				return false;
+			}
+
+			return true;
+		}
+	
+		case SOCKET_OPTION_WAKE_ON_LAN: {
+			return false;
+		}
+	
+		default:
+			break;
+	}
+
+	return false;
+}
+
 bool _is_initialized_(void* private_data) {
 	struct PRIVATE_DATA_s* pd = (struct PRIVATE_DATA_s*)private_data;
 	return pd->spi != NULL;
@@ -2797,6 +2820,10 @@ bool _w5500_network_init_(struct ETHERNET_INTERFACE_s* interface, spi_inst_t* sp
 
 	interface->socket_local_ipv4_info = _local_info_;
 	interface->socket_remote_ipv4_info = _remote_info_;
+
+	interface->socket_last_error = _last_error_;
+
+	interface->socket_set_option = _set_option_;
 
 	interface->is_initialized = _is_initialized_;
 

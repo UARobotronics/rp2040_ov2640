@@ -40,6 +40,12 @@ typedef enum {
 	SOCKET_ERROR_TIMEOUT,
 } socket_error_t;
 
+typedef enum {
+	SOCKET_OPTION_FRAGMENTATION,
+	SOCKET_OPTION_WAKE_ON_LAN,
+
+} socket_option_t;
+
 struct __attribute__((packed)) MAC_ADDRESS_s {
 	union {
 		uint8_t address[6];
@@ -116,6 +122,8 @@ struct __attribute__((packed)) ETHERNET_INTERFACE_s {
 
 	socket_error_t (*socket_last_error)(SOCKET socket, void* private_data);
 
+	bool (*socket_set_option)(SOCKET socket, socket_option_t option, const void* value, void* private_data);
+
 	bool (*is_initialized)(void* private_data);
 };
 
@@ -156,6 +164,8 @@ bool network_socket_rx_buffer_free_size(struct ETHERNET_INTERFACE_s* interface, 
 bool network_socket_tx_buffer_free_size(struct ETHERNET_INTERFACE_s* interface, SOCKET socket, uint16_t* size);
 
 socket_error_t network_socket_last_error(struct ETHERNET_INTERFACE_s* interface, SOCKET socket);
+
+bool network_socket_set_option(struct ETHERNET_INTERFACE_s* interface, SOCKET socket, socket_option_t option, const void* value);
 
 bool network_is_initialized(struct ETHERNET_INTERFACE_s* interface);
 
