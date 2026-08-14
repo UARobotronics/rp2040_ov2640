@@ -32,8 +32,12 @@ struct __attribute__((packed)) CONFIG_s {
 static struct CONFIG_s _config = {
 	.mac = 	{ .address = { 0x00, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE } },
 
-	.ip = 	{ .a = 192, .b = 168, .c = 50, .d = 122 },
-	.gw = 	{ .a = 192, .b = 168, .c = 50, .d = 001 },
+	// .ip = 	{ .a = 192, .b = 168, .c = 50, .d = 122 },
+	// .gw = 	{ .a = 192, .b = 168, .c = 50, .d = 001 },
+	// .mask = { .a = 255, .b = 255, .c = 255, .d = 000 },
+
+	.ip = 	{ .a = 10, .b = 99, .c = 9, .d = 122 },
+	.gw = 	{ .a = 10, .b = 99, .c = 9, .d = 001 },
 	.mask = { .a = 255, .b = 255, .c = 255, .d = 000 },
 
 	.port = 6666,
