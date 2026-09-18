@@ -280,7 +280,4 @@ static const uint8_t ov2640_vga[][2] = {
                           1: Bypass DSP, sensor out directly */
 };
 
-static const uint8_t ov2640_uxga_cif[][2] = {   
-};   
-
 #endif

@@ -19,6 +19,8 @@
 #include "ov2640.h"
 #include "transfer.h"
 
+#define TRANSFER_BUFFER_LENGTH 1400
+
 enum pixel_format_e
 {
 	PIXEL_FORMAT_RGB,
@@ -49,19 +51,18 @@ typedef struct
 	uint8_t* pixel_data;
 } transfer_data_t;
 
-#define TRANSFER_BUFFER_LENGTH 1400
-
 typedef struct
 {
 	uint16_t length;
 	uint8_t data[TRANSFER_BUFFER_LENGTH];
 } process_data_t;
 
-transfer_data_t transfer_data = {
-	.ready = false,
-	.pixel_data_size = 0,
-	.pixel_data = NULL
-};
+typedef struct
+{
+	uint8_t msb;
+	uint8_t lsb;
+	bool valid;
+} fps_line_adjust_values_t;
 
 const int PIN_LED = 25;
 
@@ -87,6 +88,16 @@ process_data_t process_buffers[BUFFERS_COUNT] = {
 	{.length = 0, .data = {}}
 };
 
+transfer_data_t transfer_data = {
+	.ready = false,
+	.pixel_data_size = 0,
+	.pixel_data = NULL
+};
+
+fps_line_adjust_values_t fps_line_adjust_values[MAX_FPS+1];
+uint8_t min_target_fps;
+uint8_t max_target_fps;
+
 // Current state variables
 uint8_t* frame_ready_buf = NULL;
 
@@ -101,10 +112,10 @@ enum pixel_format_e pixel_format = PIXEL_FORMAT_YUV;
 enum color_depth_e color_depth = COLOR_DEPTH_5_BITS;
 uint8_t skip_rows = 0;
 uint16_t min_packet_size = 0;
+uint8_t target_fps = 0;
 bool full_frame_capturing = false;
 
 ov2640_config config;
-
 volatile stats_t stats;
 
 void reset_stats(volatile stats_t* st)
@@ -121,7 +132,7 @@ void reset_stats(volatile stats_t* st)
 	st->total_process_communication_micros = 0;
 	st->total_process_micros = 0;
 	st->total_send_len = 0;
-	st->row_count = 0;
+	st->processed_rows = 0;
 	st->frame_count = 0;
     st->received_rows = 0;
     st->sent_packets = 0;
@@ -142,6 +153,66 @@ uint8_t max_pixel_count_by_color_depth(uint8_t color_depth)
 		case COLOR_DEPTH_2_BITS : return 63;
 		case COLOR_DEPTH_1_BITS : return 127;
 		default : return 0;
+	}
+}
+
+void fill_fps_data()
+{
+	uint8_t reg_to_fps_map[MAX_LINE_ADJUSTMENT_MSB_REG_VALUE+1];
+
+	uint8_t old_msb = ov2640_get_line_interval_adjust_msb(&config);
+
+	for (int val = 0; val <= MAX_LINE_ADJUSTMENT_MSB_REG_VALUE; ++val)
+	{
+		ov2640_set_line_interval_adjust_msb(&config, val);
+		while (gpio_get(config.pin_vsync) == false);
+		while (gpio_get(config.pin_vsync) == true);
+
+		uint64_t start = time_us_64();
+		while (gpio_get(config.pin_vsync) == false);
+		while (gpio_get(config.pin_vsync) == true);
+		uint64_t end = time_us_64();
+		reg_to_fps_map[val] = 1000000 / (end - start);
+	}
+
+	// reset to initial state
+	ov2640_set_line_interval_adjust_msb(&config, old_msb);
+
+	min_target_fps = reg_to_fps_map[MAX_LINE_ADJUSTMENT_MSB_REG_VALUE];
+	max_target_fps = reg_to_fps_map[0];
+
+	for (int i = 0; i <= MAX_FPS; ++i)
+		fps_line_adjust_values[i].valid = false;
+
+	uint8_t msb = 0;
+	uint8_t fps = reg_to_fps_map[msb];
+
+	while (msb <= MAX_LINE_ADJUSTMENT_MSB_REG_VALUE)
+	{
+		if (fps == reg_to_fps_map[msb])
+		{
+			uint8_t low_msb = msb;
+			while ((msb <= MAX_LINE_ADJUSTMENT_MSB_REG_VALUE) && (reg_to_fps_map[msb] == fps))
+				++msb;
+
+			fps_line_adjust_values[fps].valid = true;
+			fps_line_adjust_values[fps].msb = (msb - 1 + low_msb) / 2;
+			fps_line_adjust_values[fps].lsb = 0;
+		}
+		else
+		{
+			if (fps > reg_to_fps_map[msb])
+			{
+				uint8_t max_fps = reg_to_fps_map[msb-1];
+				uint8_t min_fps = reg_to_fps_map[msb];
+
+				fps_line_adjust_values[fps].valid = true;
+				fps_line_adjust_values[fps].msb = msb-1;
+				fps_line_adjust_values[fps].lsb = 255 / (max_fps - min_fps);
+			}
+		}
+
+		--fps;
 	}
 }
 
@@ -275,8 +346,38 @@ void send_command_stream_params_to_client()
 	buf[2] = skip_rows;
 	buf[3] = min_packet_size >> 8;
 	buf[4] = min_packet_size & 0xFF;
+	buf[5] = target_fps;
 
 	send_data(buf, CMD_SEND_STREAM_PARAMS_TO_CLIENT_SIZE);
+}
+
+void set_target_fps(uint8_t fps)
+{
+	if ((fps >= 0) && (fps <= MAX_FPS))
+	{
+		// FPS equal to 0 is valid and means that there is no target FPS
+		// and it must be as high as possible
+		if ((fps != 0) && !fps_line_adjust_values[fps].valid)
+		{
+			if (fps < min_target_fps)
+				fps = min_target_fps;
+			else if (fps > max_target_fps)
+				fps = max_target_fps;
+		}
+
+		target_fps = fps;
+
+		if (fps == 0)
+		{
+			ov2640_set_line_interval_adjust_msb(&config, 0);
+			ov2640_set_line_interval_adjust_lsb(&config, 0);
+		}
+		else
+		{
+			ov2640_set_line_interval_adjust_msb(&config, fps_line_adjust_values[fps].msb);
+			ov2640_set_line_interval_adjust_lsb(&config, fps_line_adjust_values[fps].lsb);
+		}
+	}
 }
 
 void process_communication()
@@ -339,6 +440,13 @@ void process_communication()
 						break;
 
 					min_packet_size = ((uint16_t)(buf_command[1]) << 8) + buf_command[2];
+
+					break;
+				case CMD_SEND_TARGET_FPS_TO_SERVER:
+					if (size != CMD_SEND_TARGET_FPS_TO_SERVER_SIZE)
+						break;
+
+					set_target_fps((uint8_t)(buf_command[1]));
 
 					break;
 				case CMD_CONNECT_TO_SERVER:
@@ -413,6 +521,11 @@ int main()
 	ov2640_init(&config);
 	PRINTF("Camera initialized\n");
 
+	uint64_t start_time = time_us_64();
+	fill_fps_data();
+	uint64_t end_time = time_us_64();
+	PRINTF("FPS line adjustment processed in %llu millis\n", (end_time - start_time) / 1000);
+
 	// test_ethernet_transfer();
 
 	mutex_init(&socket_mutex);
@@ -421,7 +534,7 @@ int main()
 	ov2640_init_capture(&config, full_frame_capturing);
 	PRINTF("Camera streaming initialized\n");
 
-	uint64_t start_time = time_us_64();
+	start_time = time_us_64();
 	uint16_t frame_count = 0;
 	uint16_t missed_rows = 0;
 	uint16_t prev_row = current_row;
@@ -517,7 +630,7 @@ int main()
 						{
 							//PRINTF("Micros passed since prev row data: %llu\n", row_time - prev_row_time);
 							stats.total_receive_micros += row_time - prev_row_time;
-							stats.row_count++;
+							stats.processed_rows++;
 						}
 						prev_row_time = row_time;
 
@@ -571,9 +684,9 @@ int main()
 				}
 				else
 				{
-					uint64_t receive_micros = stats.total_receive_micros / stats.row_count;
-					uint64_t process_micros = stats.total_process_micros / stats.row_count;
-					uint64_t send_len = stats.total_send_len / stats.row_count;
+					uint64_t receive_micros = stats.total_receive_micros / stats.processed_rows;
+					uint64_t process_micros = stats.total_process_micros / stats.processed_rows;
+					uint64_t send_len = stats.total_send_len / stats.processed_rows;
 					uint64_t send_micros = stats.total_send_micros / stats.sent_packets;
 					uint64_t packet_prepare_micros = stats.total_packet_prepare_micros / stats.total_spi_send_count;
 					uint64_t packet_free_tx_micros = stats.total_free_tx_micros / stats.total_spi_send_count;
@@ -581,8 +694,9 @@ int main()
 					uint64_t core_spi_send_micros = stats.total_core_spi_send_micros / stats.total_spi_send_count;
 					uint64_t packet_finalize_micros = stats.total_packet_finalize_micros / stats.total_spi_send_count;
 					uint64_t process_communication_micros = stats.total_process_communication_micros / stats.frame_count;
+					uint16_t frame_count = stats.received_rows / FRAME_HEIGHT;
 
-					PRINTF("FPS: %u\n", stats.received_rows / FRAME_HEIGHT);
+					PRINTF("FPS: %u\n", frame_count);
 					PRINTF("Received rows from camera: %u\n", stats.received_rows);
 					PRINTF("Missed rows: %u\n", missed_rows);
 					PRINTF("Sent packets: %u\n", stats.sent_packets);

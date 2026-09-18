@@ -41,4 +41,10 @@ void ov2640_reg_write(ov2640_config *config, uint8_t reg, uint8_t value);
 uint8_t ov2640_reg_read(ov2640_config *config, uint8_t reg);
 void ov2640_regs_write(ov2640_config *config, const uint8_t (*regs_list)[2]);
 
+uint8_t ov2640_get_line_interval_adjust_msb(ov2640_config *config);
+void ov2640_set_line_interval_adjust_msb(ov2640_config *config, uint8_t v);
+uint8_t ov2640_get_line_interval_adjust_lsb(ov2640_config *config);
+void ov2640_set_line_interval_adjust_lsb(ov2640_config *config, uint8_t v);
+void ov2640_reset(ov2640_config *config);
+
 #endif

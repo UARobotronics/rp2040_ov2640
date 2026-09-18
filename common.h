@@ -11,6 +11,9 @@
 #define CHUNK_SIZE FRAME_WIDTH * CHUNK_HEIGHT * BYTES_PER_PIXEL
 #define BUFFERS_COUNT 4
 
+#define MAX_LINE_ADJUSTMENT_MSB_REG_VALUE 15
+#define MAX_FPS 30
+
 // #define PRINTF(...) printf(__VA_ARGS__)
 #define PRINTF(...)
 
@@ -43,7 +46,7 @@ typedef struct
 	uint64_t total_process_communication_micros;
 	uint64_t total_process_micros;
 	uint64_t total_send_len;
-	uint64_t row_count;
+	uint64_t processed_rows;
 	uint64_t frame_count;
     uint64_t received_rows;
     uint64_t sent_packets;

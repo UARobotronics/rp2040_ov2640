@@ -1,3 +1,9 @@
+# origin
+Initially this code was taken from
+https://github.com/the6p4c/rp2040_ov2640
+
+and then significantly modified.
+
 # rp2040_ov2640
 Quick demonstration of interfacing with an OV2640 camera from the Raspberry Pi
 Pico (RP2040).

@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "ov2640.h"
+#include "ov2640_regs.h"
 // #include "ov2640_init.h" // UXGA, 640 x 480, bad quality
 // #include "ov2640_init_no_comments.h" // UXGA, 800 x 600, bad quality
 #include "ov2640_svga_init.h" // SVGA, 800 x 600, bad quality
@@ -65,7 +66,6 @@ void ov2640_init(ov2640_config *config)
 
 	// Initialise the camera itself over SCCB
 	ov2640_regs_write(config, ov2640_vga);
-	ov2640_regs_write(config, ov2640_uxga_cif);
 
 	// // Set RGB565 output mode
 	// ov2640_reg_write(config, 0xff, 0x00);
@@ -228,4 +228,55 @@ void ov2640_regs_write(ov2640_config *config, const uint8_t (*regs_list)[2])
 
 		regs_list++;
 	}
+}
+
+// Register 2A:
+// Bit[7:4]: Line interval adjust value 4 MSBs (LSBs in FRARL[7:0]
+//           (0x2B))
+//
+// The frame rate will be adjusted by changing the line interval. Each LSB
+// will add 256/1922 Tframe in UXGA and 1/1190 Tframe in SVGA mode to te
+// frame period.
+uint8_t ov2640_get_line_interval_adjust_msb(ov2640_config *config)
+{
+	uint8_t val = ov2640_reg_read(config, OV2640_REG_SENSOR_BANK_LINE_INTERVAL_ADJUST_MSB);
+
+	return (val & 0xF0) >> 4;
+}
+
+// v - value is [0..0x0F], it is stored in 4 most significant
+//     bits of OV2640_REG_LINE_INTERVAL_ADJUST_MSB register
+void ov2640_set_line_interval_adjust_msb(ov2640_config *config, uint8_t v)
+{
+	ov2640_reg_write(config, OV2640_REG_BANK_SELECT, OV2640_REG_VAL_BANK_SELECT_SENSOR_BANK);
+
+	uint8_t val = ov2640_reg_read(config, OV2640_REG_SENSOR_BANK_LINE_INTERVAL_ADJUST_MSB);
+	val = (v << 4) | (val & 0xF);
+	ov2640_reg_write(config, OV2640_REG_SENSOR_BANK_LINE_INTERVAL_ADJUST_MSB, val);
+
+	ov2640_reset(config);
+}
+
+// Register 2B:
+// Line Interval Adjustment Value LSB 8 bits (MSBs in REG2A[7:4]
+// (0x2A))
+//
+// The frame rate will be adjusted by changing the line interval. Each LSB
+// will add 1/1922 Tframe in UXGA and 1/1190 Tframe in SVGA mode to te
+// frame period.
+uint8_t ov2640_get_line_interval_adjust_lsb(ov2640_config *config)
+{
+	return ov2640_reg_read(config, OV2640_REG_SENSOR_BANK_LINE_INTERVAL_ADJUST_LSB);
+}
+
+// v - value is [0..0xFF]
+void ov2640_set_line_interval_adjust_lsb(ov2640_config *config, uint8_t v)
+{
+	return ov2640_reg_write(config, OV2640_REG_SENSOR_BANK_LINE_INTERVAL_ADJUST_LSB, v);
+}
+
+void ov2640_reset(ov2640_config *config)
+{
+	ov2640_reg_write(config, OV2640_REG_BANK_SELECT, OV2640_REG_VAL_BANK_SELECT_DSP_BANK);
+	ov2640_reg_write(config, OV2640_REG_DSP_BANK_RESET, 0);
 }
