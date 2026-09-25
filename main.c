@@ -697,9 +697,9 @@ int main()
 					uint16_t frame_count = stats.received_rows / FRAME_HEIGHT;
 
 					PRINTF("FPS: %u\n", frame_count);
-					PRINTF("Received rows from camera: %u\n", stats.received_rows);
+					PRINTF("Received rows from camera: %llu\n", stats.received_rows);
 					PRINTF("Missed rows: %u\n", missed_rows);
-					PRINTF("Sent packets: %u\n", stats.sent_packets);
+					PRINTF("Sent packets: %llu\n", stats.sent_packets);
 					PRINTF("Retrieved single row data in %llu micros\n", receive_micros);
 					PRINTF("Processed single row data in %llu micros\n", process_micros);
 					PRINTF("\n");
